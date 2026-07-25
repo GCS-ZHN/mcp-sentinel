@@ -3,19 +3,19 @@ import type { PluginInput, Hooks } from "@opencode-ai/plugin";
 import type { OpencodeClient } from "@opencode-ai/sdk";
 import { parseMcpConfig } from "./services/config-reader.js";
 import {
-  startPoll,
-  cancelPoll,
-  getPollTask,
-  getActivePolls,
+  startSentinel,
+  cancelSentinel,
+  getSentinelTask,
+  getActiveSentinels,
   setNotifyFn,
   cleanup,
-} from "./services/poll-manager.js";
+} from "./services/sentinel-manager.js";
 import { disconnectAll } from "./services/mcp-connection-manager.js";
-import type { PollRequest } from "./services/types.js";
+import type { SentinelRequest } from "./services/types.js";
 
 let _client: OpencodeClient | null = null;
 
-const pollMcpTool = tool({
+const sentinelPollTool = tool({
   description: `Submit a long-running MCP tool call and poll it at regular intervals until a condition is met. The sentinel polls silently (zero token cost) and notifies you when done.
 
 Parameters:
@@ -34,7 +34,7 @@ Condition model:
 
 Path uses dot notation with optional array indices: "status", "tasks[0].exit_code"
 
-You will receive a prompt notification with the result when done. Use poll_status to check/cancel.`,
+You will receive a prompt notification with the result when done. Use sentinel_status to check/cancel.`,
   args: {
     server: tool.schema.string().describe("Name of the MCP server (from opencode config)"),
     tool: tool.schema.string().describe("Name of the tool to call on the MCP server"),
@@ -76,18 +76,18 @@ You will receive a prompt notification with the result when done. Use poll_statu
       }
     }
 
-    let until: PollRequest["until"];
+    let until: SentinelRequest["until"];
     try {
       until = JSON.parse(args.until);
     } catch {
-      return "Error: Invalid JSON for until parameter. Must be a valid JSON object describing the condition.";
+      return "Error: Invalid JSON for until parameter.";
     }
 
     const configResult = await _client.config.get();
     const rawConfig = configResult.data ?? {};
     const mcpConfig = parseMcpConfig(rawConfig);
 
-    const request: PollRequest = {
+    const request: SentinelRequest = {
       server: args.server,
       tool: args.tool,
       args: toolArgs,
@@ -97,37 +97,37 @@ You will receive a prompt notification with the result when done. Use poll_statu
       sessionID: ctx.sessionID,
     };
 
-    const pollId = await startPoll(request, mcpConfig);
+    const id = await startSentinel(request, mcpConfig);
 
-    return `Sentinel started polling.\n\n**Poll ID:** \`${pollId}\`\n**Server:** ${request.server}\n**Tool:** ${request.tool}\n**Interval:** ${request.interval ?? 5000}ms\n**Timeout:** ${request.timeout ?? 600000}ms\n\nYou will be notified when the condition is met or the poll times out. Use \`poll_status\` to check progress or cancel.`;
+    return `Sentinel started.\n\n**ID:** \`${id}\`\n**Server:** ${request.server}\n**Tool:** ${request.tool}\n**Interval:** ${request.interval ?? 5000}ms\n**Timeout:** ${request.timeout ? request.timeout + "ms" : "none"}\n\nUse \`sentinel_status\` to check progress or cancel.`;
   },
 });
 
-const pollStatusTool = tool({
-  description: `Check the status of sentinel polls, list active polls, or cancel a running poll.
+const sentinelStatusTool = tool({
+  description: `Check the status of sentinel tasks, list active tasks, or cancel a running task.
 
 Actions:
-- "status": Get details of a specific poll (requires poll_id)
-- "list": List all active polling tasks
-- "cancel": Cancel a running poll (requires poll_id)`,
+- "status": Get details of a specific sentinel (requires id)
+- "list": List all active sentinel tasks
+- "cancel": Cancel a running sentinel (requires id)`,
   args: {
     action: tool.schema
       .enum(["status", "list", "cancel"])
-      .describe("Action: status of a poll, list active polls, or cancel a poll"),
-    poll_id: tool.schema.string().optional().describe("Poll ID (required for status and cancel)"),
+      .describe("Action: status of a sentinel, list active tasks, or cancel a task"),
+    id: tool.schema.string().optional().describe("Sentinel ID (required for status and cancel)"),
   },
   async execute(args) {
     switch (args.action) {
       case "status": {
-        if (!args.poll_id) {
-          return "Error: poll_id is required for status action.";
+        if (!args.id) {
+          return "Error: id is required for status action.";
         }
-        const task = getPollTask(args.poll_id);
+        const task = getSentinelTask(args.id);
         if (!task) {
-          return `Poll \`${args.poll_id}\` not found.`;
+          return `Sentinel \`${args.id}\` not found.`;
         }
         return [
-          `**Poll ID:** ${task.id}`,
+          `**ID:** ${task.id}`,
           `**Status:** ${task.status}`,
           `**Server:** ${task.request.server}`,
           `**Tool:** ${task.request.tool}`,
@@ -145,11 +145,11 @@ Actions:
           .join("\n");
       }
       case "list": {
-        const polls = getActivePolls();
-        if (polls.length === 0) {
-          return "No active polls.";
+        const tasks = getActiveSentinels();
+        if (tasks.length === 0) {
+          return "No active sentinel tasks.";
         }
-        return polls
+        return tasks
           .map(
             (t) =>
               `- \`${t.id}\` | ${t.request.server}/${t.request.tool} | count=${t.pollCount} | ${new Date(t.createdAt).toISOString()}`
@@ -157,28 +157,28 @@ Actions:
           .join("\n");
       }
       case "cancel": {
-        if (!args.poll_id) {
-          return "Error: poll_id is required for cancel action.";
+        if (!args.id) {
+          return "Error: id is required for cancel action.";
         }
-        const cancelled = cancelPoll(args.poll_id);
+        const cancelled = cancelSentinel(args.id);
         return cancelled
-          ? `Poll \`${args.poll_id}\` cancelled.`
-          : `Poll \`${args.poll_id}\` not found or already completed.`;
+          ? `Sentinel \`${args.id}\` cancelled.`
+          : `Sentinel \`${args.id}\` not found or already completed.`;
       }
     }
   },
 });
 
-const pollAttachTool = tool({
-  description: `Block the agent, waiting for a sentinel poll task to complete. Use this when you want to pause until the polled result is ready, instead of checking poll_status repeatedly.
+const sentinelAttachTool = tool({
+  description: `Block the agent, waiting for a sentinel task to complete. Use this when you want to pause until the result is ready, instead of checking sentinel_status repeatedly.
 
-The tool sleeps and checks the poll status internally (no token cost during wait). If the user cancels execution, the background async notification still fires normally.
+The tool sleeps and checks the status internally (no token cost during wait). If the user cancels execution, the background async notification still fires normally.
 
 Parameters:
-- poll_id: The poll ID to wait for
+- id: The sentinel ID to wait for
 - timeout: Max wait time in ms (optional, waits indefinitely if unset)`,
   args: {
-    poll_id: tool.schema.string().describe("The poll ID to wait for"),
+    id: tool.schema.string().describe("The sentinel ID to wait for"),
     timeout: tool.schema
       .number()
       .int()
@@ -187,16 +187,16 @@ Parameters:
       .describe("Maximum wait time in milliseconds (optional)"),
   },
   async execute(args, ctx) {
-    const task = getPollTask(args.poll_id);
+    const task = getSentinelTask(args.id);
     if (!task) {
-      return `Poll \`${args.poll_id}\` not found.`;
+      return `Sentinel \`${args.id}\` not found.`;
     }
 
     if (task.status !== "polling") {
       if (task.status === "completed") {
-        return `Poll \`${args.poll_id}\` already completed.\n\n**Result:**\n\`\`\`json\n${JSON.stringify(task.lastResult, null, 2)}\n\`\`\``;
+        return `Sentinel \`${args.id}\` already completed.\n\n**Result:**\n\`\`\`json\n${JSON.stringify(task.lastResult, null, 2)}\n\`\`\``;
       }
-      return `Poll \`${args.poll_id}\` status: ${task.status}${task.error ? ` — ${task.error}` : ""}`;
+      return `Sentinel \`${args.id}\` status: ${task.status}${task.error ? ` — ${task.error}` : ""}`;
     }
 
     const checkInterval = 1000;
@@ -207,15 +207,15 @@ Parameters:
         return "";
       }
 
-      const current = getPollTask(args.poll_id);
+      const current = getSentinelTask(args.id);
       if (!current) {
-        return `Poll \`${args.poll_id}\` no longer exists.`;
+        return `Sentinel \`${args.id}\` no longer exists.`;
       }
 
       if (current.status !== "polling") {
         if (current.status === "completed") {
           return [
-            `## Poll Complete`,
+            `## Sentinel Complete`,
             `**ID:** ${current.id}`,
             `**Server:** ${current.request.server}`,
             `**Tool:** ${current.request.tool}`,
@@ -225,17 +225,86 @@ Parameters:
           ].join("\n");
         }
         if (current.status === "timeout") {
-          return `Poll \`${args.poll_id}\` timed out after ${current.pollCount} polls.`;
+          return `Sentinel \`${args.id}\` timed out after ${current.pollCount} polls.`;
         }
-        return `Poll \`${args.poll_id}\` failed: ${current.error || "unknown error"}`;
+        if (current.status === "cancelled") {
+          return `Sentinel \`${args.id}\` was cancelled.`;
+        }
+        return `Sentinel \`${args.id}\` failed: ${current.error || "unknown error"}`;
       }
 
       if (args.timeout && Date.now() - startedAt >= args.timeout) {
-        return `Attach timed out after ${args.timeout}ms. Poll \`${args.poll_id}\` is still running (${current.pollCount} polls so far).`;
+        return `Attach timed out after ${args.timeout}ms. Sentinel \`${args.id}\` is still running (${current.pollCount} polls so far).`;
       }
 
       await new Promise((resolve) => setTimeout(resolve, checkInterval));
     }
+  },
+});
+
+const sentinelReadTool = tool({
+  description: `Read raw poll outputs from a sentinel task. Useful for debugging when a condition isn't matching — inspect actual MCP responses.
+
+Works whether the sentinel is running, completed, cancelled, or errored.`,
+  args: {
+    id: tool.schema.string().describe("The sentinel ID to read outputs from"),
+    offset: tool.schema
+      .number()
+      .int()
+      .min(0)
+      .optional()
+      .describe("0-based start index (default: from end, giving the last N polls)"),
+    limit: tool.schema
+      .number()
+      .int()
+      .min(1)
+      .optional()
+      .describe("Max number of outputs (default: 5)"),
+  },
+  async execute(args) {
+    const task = getSentinelTask(args.id);
+    if (!task) {
+      return `Sentinel \`${args.id}\` not found.`;
+    }
+
+    const max = args.limit ?? 5;
+    const all = task.pollLog;
+    let slice: typeof all;
+
+    if (args.offset !== undefined) {
+      slice = all.slice(args.offset, args.offset + max);
+    } else {
+      slice = all.slice(-max);
+    }
+
+    if (slice.length === 0) {
+      if (all.length === 0) {
+        return `Sentinel \`${args.id}\` (status: ${task.status}) has no outputs yet.`;
+      }
+      return `Sentinel \`${args.id}\` has ${all.length} outputs but none match the requested range (offset=${args.offset ?? "end"}, limit=${max}).`;
+    }
+
+    const lines = [
+      `**Sentinel:** \`${task.id}\` | **Status:** ${task.status} | **Total polls:** ${task.pollCount}`,
+      `**Server:** ${task.request.server} | **Tool:** ${task.request.tool}`,
+      task.request.timeout ? `**Timeout:** ${task.request.timeout}ms` : "**Timeout:** none",
+      task.error ? `**Error:** ${task.error}` : "",
+      "",
+      `Showing ${slice.length} of ${task.pollLog.length} outputs:`,
+      "",
+    ].filter(Boolean);
+
+    for (const entry of slice) {
+      lines.push(
+        `--- Poll #${entry.index} (${new Date(entry.time).toISOString()}) ---`,
+        "```json",
+        JSON.stringify(entry.result, null, 2),
+        "```",
+        ""
+      );
+    }
+
+    return lines.join("\n");
   },
 });
 
@@ -257,9 +326,10 @@ export async function OpenCodeSentinelPlugin(input: PluginInput): Promise<Hooks>
 
   return {
     tool: {
-      poll_mcp: pollMcpTool,
-      poll_status: pollStatusTool,
-      poll_attach: pollAttachTool,
+      mcp_sentinel_poll: sentinelPollTool,
+      mcp_sentinel_status: sentinelStatusTool,
+      mcp_sentinel_attach: sentinelAttachTool,
+      mcp_sentinel_read: sentinelReadTool,
     },
   };
 }

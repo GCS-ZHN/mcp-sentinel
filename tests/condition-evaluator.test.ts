@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 import { evaluateCondition } from "../src/services/condition-evaluator.js";
-import type { PollCondition } from "../src/services/types.js";
+import type { SentinelCondition } from "../src/services/types.js";
 
 describe("condition-evaluator", () => {
   describe("resolvePath", () => {
@@ -97,7 +97,7 @@ describe("condition-evaluator", () => {
     });
 
     it("and (all true)", () => {
-      const condition: PollCondition = {
+      const condition: SentinelCondition = {
         and: [
           { path: "status", is: "eq", value: "completed" },
           { path: "exitCode", is: "eq", value: 0 },
@@ -107,7 +107,7 @@ describe("condition-evaluator", () => {
     });
 
     it("and (one false)", () => {
-      const condition: PollCondition = {
+      const condition: SentinelCondition = {
         and: [
           { path: "status", is: "eq", value: "completed" },
           { path: "exitCode", is: "eq", value: 1 },
@@ -121,7 +121,7 @@ describe("condition-evaluator", () => {
     });
 
     it("or (one true)", () => {
-      const condition: PollCondition = {
+      const condition: SentinelCondition = {
         or: [
           { path: "status", is: "eq", value: "running" },
           { path: "exitCode", is: "eq", value: 0 },
@@ -131,7 +131,7 @@ describe("condition-evaluator", () => {
     });
 
     it("or (all false)", () => {
-      const condition: PollCondition = {
+      const condition: SentinelCondition = {
         or: [
           { path: "status", is: "eq", value: "running" },
           { path: "exitCode", is: "eq", value: 1 },
@@ -145,7 +145,7 @@ describe("condition-evaluator", () => {
     });
 
     it("nested composition", () => {
-      const condition: PollCondition = {
+      const condition: SentinelCondition = {
         and: [
           { path: "status", is: "eq", value: "completed" },
           {
@@ -160,7 +160,7 @@ describe("condition-evaluator", () => {
     });
 
     it("deeply nested composition", () => {
-      const condition: PollCondition = {
+      const condition: SentinelCondition = {
         not: {
           or: [
             { not: { path: "status", is: "eq", value: "completed" } },
@@ -184,7 +184,7 @@ describe("condition-evaluator", () => {
         total_duration: 120,
       };
 
-      const condition: PollCondition = {
+      const condition: SentinelCondition = {
         and: [
           { path: "status", is: "eq", value: "completed" },
           { path: "tasks[2].exit_code", is: "eq", value: 0 },
@@ -202,7 +202,7 @@ describe("condition-evaluator", () => {
         ],
       };
 
-      const condition: PollCondition = {
+      const condition: SentinelCondition = {
         and: [
           { path: "status", is: "eq", value: "completed" },
           { path: "tasks[1].exit_code", is: "eq", value: 0 },
@@ -216,7 +216,7 @@ describe("condition-evaluator", () => {
       const running = { status: "running" };
       const failed = { status: "failed" };
 
-      const condition: PollCondition = {
+      const condition: SentinelCondition = {
         or: [
           { path: "status", is: "eq", value: "completed" },
           { path: "status", is: "eq", value: "failed" },

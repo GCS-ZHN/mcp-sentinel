@@ -7,36 +7,37 @@ export interface SimpleCondition {
 }
 
 export interface NotCondition {
-  not: PollCondition;
+  not: SentinelCondition;
 }
 
 export interface AndCondition {
-  and: PollCondition[];
+  and: SentinelCondition[];
 }
 
 export interface OrCondition {
-  or: PollCondition[];
+  or: SentinelCondition[];
 }
 
-export type PollCondition = SimpleCondition | NotCondition | AndCondition | OrCondition;
+export type SentinelCondition = SimpleCondition | NotCondition | AndCondition | OrCondition;
 
-export interface PollRequest {
+export interface SentinelRequest {
   server: string;
   tool: string;
   args: Record<string, unknown>;
   interval?: number;
   timeout?: number;
-  until: PollCondition;
+  until: SentinelCondition;
   sessionID: string;
 }
 
-export interface PollTask {
+export interface SentinelTask {
   id: string;
-  request: PollRequest;
+  request: SentinelRequest;
   createdAt: number;
   pollCount: number;
   lastResult: unknown;
-  status: "polling" | "completed" | "timeout" | "error";
+  pollLog: Array<{ index: number; time: number; result: unknown }>;
+  status: "polling" | "completed" | "cancelled" | "timeout" | "error";
   error?: string;
   resolvedAt?: number;
 }

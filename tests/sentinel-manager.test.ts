@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import {
-  startPoll,
-  cancelPoll,
-  getPollTask,
-  getActivePolls,
+  startSentinel,
+  cancelSentinel,
+  getSentinelTask,
+  getActiveSentinels,
   cleanup,
   setNotifyFn,
-} from "../src/services/poll-manager.js";
+} from "../src/services/sentinel-manager.js";
 import { parseMcpConfig } from "../src/services/config-reader.js";
 
 function createMockClient() {
@@ -17,7 +17,7 @@ function createMockClient() {
   } as any;
 }
 
-describe("poll-manager", () => {
+describe("sentinel-manager", () => {
   beforeEach(() => {
     cleanup();
     setNotifyFn(createMockClient());
@@ -30,7 +30,7 @@ describe("poll-manager", () => {
   it("throws for unknown server", () => {
     const config = parseMcpConfig({});
     expect(
-      startPoll(
+      startSentinel(
         {
           server: "nonexistent",
           tool: "test",
@@ -43,12 +43,12 @@ describe("poll-manager", () => {
     ).rejects.toThrow("Unknown MCP server");
   });
 
-  it("creates a poll task with valid config", () => {
+  it("creates a task with valid config", () => {
     const config = parseMcpConfig({
       mcp: { test: { type: "remote", url: "http://localhost:9999" } },
     });
     expect(
-      startPoll(
+      startSentinel(
         {
           server: "test",
           tool: "status",
@@ -61,11 +61,11 @@ describe("poll-manager", () => {
     ).resolves.toBeDefined();
   });
 
-  it("generates unique poll IDs", () => {
+  it("generates unique IDs", () => {
     const config = parseMcpConfig({
       mcp: { s1: { type: "remote", url: "http://localhost:1" } },
     });
-    const p1 = startPoll(
+    const p1 = startSentinel(
       {
         server: "s1",
         tool: "t",
@@ -75,7 +75,7 @@ describe("poll-manager", () => {
       },
       config
     );
-    const p2 = startPoll(
+    const p2 = startSentinel(
       {
         server: "s1",
         tool: "t",
@@ -88,11 +88,11 @@ describe("poll-manager", () => {
     expect(p1).resolves.not.toEqual(p2);
   });
 
-  it("getActivePolls returns active polls", async () => {
+  it("getActiveSentinels returns active tasks", async () => {
     const config = parseMcpConfig({
       mcp: { a: { type: "remote", url: "http://localhost:2" } },
     });
-    const id = await startPoll(
+    const id = await startSentinel(
       {
         server: "a",
         tool: "t",
@@ -102,16 +102,16 @@ describe("poll-manager", () => {
       },
       config
     );
-    const polls = getActivePolls();
-    expect(polls.length).toBeGreaterThanOrEqual(1);
-    expect(polls.some((p) => p.id === id)).toBe(true);
+    const tasks = getActiveSentinels();
+    expect(tasks.length).toBeGreaterThanOrEqual(1);
+    expect(tasks.some((p) => p.id === id)).toBe(true);
   });
 
-  it("getPollTask returns task details", async () => {
+  it("getSentinelTask returns task details", async () => {
     const config = parseMcpConfig({
       mcp: { b: { type: "remote", url: "http://localhost:3" } },
     });
-    const id = await startPoll(
+    const id = await startSentinel(
       {
         server: "b",
         tool: "test",
@@ -121,7 +121,7 @@ describe("poll-manager", () => {
       },
       config
     );
-    const task = getPollTask(id);
+    const task = getSentinelTask(id);
     expect(task).toBeDefined();
     expect(task!.request.server).toBe("b");
     expect(task!.request.tool).toBe("test");
@@ -129,11 +129,11 @@ describe("poll-manager", () => {
     expect(task!.status).toBe("polling");
   });
 
-  it("cancelPoll cancels active poll", async () => {
+  it("cancelSentinel cancels active task", async () => {
     const config = parseMcpConfig({
       mcp: { c: { type: "remote", url: "http://localhost:4" } },
     });
-    const id = await startPoll(
+    const id = await startSentinel(
       {
         server: "c",
         tool: "t",
@@ -143,27 +143,26 @@ describe("poll-manager", () => {
       },
       config
     );
-    const cancelled = cancelPoll(id);
+    const cancelled = cancelSentinel(id);
     expect(cancelled).toBe(true);
-    const task = getPollTask(id);
-    expect(task?.status).toBe("completed");
-    expect(getActivePolls()).toEqual([]);
+    const task = getSentinelTask(id);
+    expect(task?.status).toBe("cancelled");
+    expect(getActiveSentinels()).toEqual([]);
   });
 
-  it("cancelPoll returns false for already completed poll", () => {
-    const result = cancelPoll("nonexistent");
-    expect(result).toBe(false);
+  it("cancelSentinel returns false for nonexistent id", () => {
+    expect(cancelSentinel("nonexistent")).toBe(false);
   });
 
-  it("returns undefined for nonexistent poll", () => {
-    expect(getPollTask("nope")).toBeUndefined();
+  it("returns undefined for nonexistent task", () => {
+    expect(getSentinelTask("nope")).toBeUndefined();
   });
 
   it("respects custom interval and timeout", async () => {
     const config = parseMcpConfig({
       mcp: { d: { type: "remote", url: "http://localhost:5" } },
     });
-    const id = await startPoll(
+    const id = await startSentinel(
       {
         server: "d",
         tool: "t",
@@ -175,16 +174,16 @@ describe("poll-manager", () => {
       },
       config
     );
-    const task = getPollTask(id);
+    const task = getSentinelTask(id);
     expect(task!.request.interval).toBe(2000);
     expect(task!.request.timeout).toBe(5000);
   });
 
-  it("cleanup removes all active polls", async () => {
+  it("cleanup removes all active tasks", async () => {
     const config = parseMcpConfig({
       mcp: { e: { type: "remote", url: "http://localhost:6" } },
     });
-    await startPoll(
+    await startSentinel(
       {
         server: "e",
         tool: "t",
@@ -194,8 +193,8 @@ describe("poll-manager", () => {
       },
       config
     );
-    expect(getActivePolls().length).toBeGreaterThan(0);
+    expect(getActiveSentinels().length).toBeGreaterThan(0);
     cleanup();
-    expect(getActivePolls().length).toBe(0);
+    expect(getActiveSentinels().length).toBe(0);
   });
 });

@@ -1,4 +1,4 @@
-import type { PollCondition } from "./types.js";
+import type { SentinelCondition } from "./types.js";
 
 function resolvePath(obj: unknown, path: string): unknown {
   const keys = path
@@ -42,7 +42,7 @@ function compare(actual: unknown, op: string, expected: unknown): boolean {
   }
 }
 
-export function evaluateCondition(condition: PollCondition, data: unknown): boolean {
+export function evaluateCondition(condition: SentinelCondition, data: unknown): boolean {
   if ("path" in condition) {
     const actual = resolvePath(data, condition.path);
     return compare(actual, condition.is, condition.value);
