@@ -23,7 +23,7 @@ Parameters:
 - tool: Tool name to call on the server
 - args: Arguments for the tool (JSON object, default: {})
 - interval: Poll interval in ms (min 1000, default: 5000)
-- timeout: Max poll duration in ms (min 5000, default: 600000 = 10 min)
+- timeout: Max poll duration in ms (optional, polls until condition met if unset)
 - until: Condition object to wait for
 
 Condition model:
@@ -53,7 +53,9 @@ You will receive a prompt notification with the result when done. Use poll_statu
       .int()
       .min(5000)
       .optional()
-      .describe("Maximum poll duration in milliseconds (default: 600000)"),
+      .describe(
+        "Maximum poll duration in milliseconds (optional, polls until condition met if unset)"
+      ),
     until: tool.schema
       .string()
       .describe(
@@ -167,6 +169,76 @@ Actions:
   },
 });
 
+const pollAttachTool = tool({
+  description: `Block the agent, waiting for a sentinel poll task to complete. Use this when you want to pause until the polled result is ready, instead of checking poll_status repeatedly.
+
+The tool sleeps and checks the poll status internally (no token cost during wait). If the user cancels execution, the background async notification still fires normally.
+
+Parameters:
+- poll_id: The poll ID to wait for
+- timeout: Max wait time in ms (optional, waits indefinitely if unset)`,
+  args: {
+    poll_id: tool.schema.string().describe("The poll ID to wait for"),
+    timeout: tool.schema
+      .number()
+      .int()
+      .min(1000)
+      .optional()
+      .describe("Maximum wait time in milliseconds (optional)"),
+  },
+  async execute(args, ctx) {
+    const task = getPollTask(args.poll_id);
+    if (!task) {
+      return `Poll \`${args.poll_id}\` not found.`;
+    }
+
+    if (task.status !== "polling") {
+      if (task.status === "completed") {
+        return `Poll \`${args.poll_id}\` already completed.\n\n**Result:**\n\`\`\`json\n${JSON.stringify(task.lastResult, null, 2)}\n\`\`\``;
+      }
+      return `Poll \`${args.poll_id}\` status: ${task.status}${task.error ? ` — ${task.error}` : ""}`;
+    }
+
+    const checkInterval = 1000;
+    const startedAt = Date.now();
+
+    while (true) {
+      if (ctx.abort.aborted) {
+        return "";
+      }
+
+      const current = getPollTask(args.poll_id);
+      if (!current) {
+        return `Poll \`${args.poll_id}\` no longer exists.`;
+      }
+
+      if (current.status !== "polling") {
+        if (current.status === "completed") {
+          return [
+            `## Poll Complete`,
+            `**ID:** ${current.id}`,
+            `**Server:** ${current.request.server}`,
+            `**Tool:** ${current.request.tool}`,
+            `**Polls:** ${current.pollCount}`,
+            `**Duration:** ${((current.resolvedAt! - current.createdAt) / 1000).toFixed(1)}s`,
+            `**Result:**\n\`\`\`json\n${JSON.stringify(current.lastResult, null, 2)}\n\`\`\``,
+          ].join("\n");
+        }
+        if (current.status === "timeout") {
+          return `Poll \`${args.poll_id}\` timed out after ${current.pollCount} polls.`;
+        }
+        return `Poll \`${args.poll_id}\` failed: ${current.error || "unknown error"}`;
+      }
+
+      if (args.timeout && Date.now() - startedAt >= args.timeout) {
+        return `Attach timed out after ${args.timeout}ms. Poll \`${args.poll_id}\` is still running (${current.pollCount} polls so far).`;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, checkInterval));
+    }
+  },
+});
+
 async function shutdown() {
   cleanup();
   await disconnectAll();
@@ -187,6 +259,7 @@ export async function OpenCodeSentinelPlugin(input: PluginInput): Promise<Hooks>
     tool: {
       poll_mcp: pollMcpTool,
       poll_status: pollStatusTool,
+      poll_attach: pollAttachTool,
     },
   };
 }

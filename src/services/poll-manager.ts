@@ -20,7 +20,7 @@ function generateId(): string {
 export async function startPoll(request: PollRequest, mcpConfig: McpConfig): Promise<string> {
   const id = generateId();
   const interval = request.interval ?? 5000;
-  const timeout = request.timeout ?? 600000;
+  const timeout = request.timeout; // undefined = no limit
 
   const serverConfig = lookupServer(mcpConfig, request.server);
   if (!serverConfig) {
@@ -61,7 +61,7 @@ export async function startPoll(request: PollRequest, mcpConfig: McpConfig): Pro
       await notify(id, request.sessionID, "failed", String(err));
     }
 
-    if (Date.now() - t.createdAt >= timeout) {
+    if (timeout && Date.now() - t.createdAt >= timeout) {
       t.status = "timeout";
       t.resolvedAt = Date.now();
       stopTimers(id);

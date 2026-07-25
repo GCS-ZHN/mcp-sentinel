@@ -49,12 +49,16 @@ sequenceDiagram
 ## Installation
 
 ```bash
+opencode plugin -g opencode-mcp-sentinel
+```
+
+Or via npm:
+
+```bash
 npm install opencode-mcp-sentinel
 ```
 
-## Configuration
-
-Add to your `opencode.jsonc` (project-level `.opencode/opencode.jsonc` or global `~/.config/opencode/opencode.jsonc`):
+Then add to your `opencode.jsonc`:
 
 ```jsonc
 {
