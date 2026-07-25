@@ -36,9 +36,11 @@ server.registerTool(
   {
     description:
       "Submit a CI job. Returns a job_id immediately. The job progresses asynchronously through multiple stages — poll get_job_status to track completion.",
-    inputSchema: {
-      name: z.string().describe("Job name"),
-    },
+    inputSchema: z
+      .object({
+        name: z.string().describe("Job name"),
+      })
+      .strict(),
   },
   async ({ name }) => {
     const id = `job-${Date.now()}`;
@@ -81,9 +83,11 @@ server.registerTool(
   {
     description:
       "Get the current status of a CI job. Progresses automatically on each call through 8 stages. Works with any job_id — state advances globally per poll.",
-    inputSchema: {
-      job_id: z.string().describe("The job ID to check"),
-    },
+    inputSchema: z
+      .object({
+        job_id: z.string().describe("The job ID to check"),
+      })
+      .strict(),
   },
   async ({ job_id }) => {
     globalPollCount++;
