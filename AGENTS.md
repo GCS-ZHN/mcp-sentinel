@@ -5,6 +5,7 @@
 - Never make changes directly on `main`. Create or switch to a feature branch first.
 - Do not commit, amend, rebase, or push unless explicitly asked.
 - Pushing to remote and creating releases/tags requires explicit user authorization.
+- **Code must be reviewed and approved before asking about git operations.** Don't preemptively ask for commit/push — wait for user to confirm the changes look good.
 
 ## Commands
 
@@ -67,6 +68,64 @@ git tag vX.Y.Z && git push origin main vX.Y.Z
 
 Tag push triggers `.github/workflows/release.yml` (typecheck → build → test → version verify → npm publish → GitHub release). Version in `package.json` must match the tag exactly.
 
+**No hardcoded version strings.** The MCP client info (`name`/`version`) is imported from `package.json` with `{ type: "json" }` at compile time. Updating `package.json` version is the only required change for a release.
+
 ## Mock MCP server (`tests/mock-mcp-server.ts`)
 
 Self-contained stdio server with `submit_job` and `get_job_status`. State advances globally per poll (8 stages, 2 polls each). `{env:PWD}` paths work in opencode MCP config.
+
+## Tool development standards
+
+### Core principle: surface errors, never hide them
+
+- **Every error must reach the agent** as a clear, actionable tool output string. The agent is the debugger — don't deprive it of information.
+- **Never blindly try/catch** unless you have a specific recovery strategy. Let exceptions propagate so they become visible. The only acceptable silent catch is for truly non-fatal side effects (e.g., prompt notification failure).
+- **Be strict about parameter validation.** Loose validation leads to mysterious failures that the agent can't diagnose. Validate types, shapes, and constraints upfront and return explicit `"Error: ..."` messages.
+- **When the MCP server rejects arguments, pass the raw error through verbatim** — field names, error codes, and all. Don't wrap or rewrite it.
+
+### Input validation
+
+All tools MUST validate their inputs and return **clean error strings** (`"Error: ..."`) to the agent — never let JS exceptions propagate.
+
+- Validate required fields: non-empty strings, valid JSON parse, correct types.
+- Wrap `startSentinel` and other fallible calls in `try/catch` — return `"Error: ${String(err)}"`.
+- For `until`: validate it's a JSON object (not string, number, array, null).
+- For `args`: validate JSON parse before passing to MCP.
+- When the MCP server rejects wrong arguments, the raw MCP error (including field names and error codes) must be passed through to the agent verbatim — do not wrap or obscure it.
+
+### Error handling patterns
+
+```typescript
+// ✅ Correct: return error string to agent
+return "Error: server and tool must be non-empty strings.";
+
+// ✅ Correct: wrap with try/catch
+try { await startSentinel(...); } catch (err) { return `Error: ${String(err)}`; }
+
+// ❌ Wrong: let exception propagate — agent gets cryptic JS error
+await startSentinel(...);
+```
+
+### Defaults and fallbacks
+
+- Optional parameters must have sensible defaults in the handler (not just the schema).
+- All `switch` statements must have a `default` case returning an error string.
+- `ctx.abort` must be checked — return `""` on abort.
+
+## Testing requirements
+
+### Unit tests must cover
+
+- Normal flow (happy path)
+- Invalid inputs (empty strings, wrong types, missing fields)
+- Error paths (MCP server returns errors, connection failures)
+- Edge cases (null/undefined values, array index paths, nested conditions)
+
+### End-to-end tests must cover
+
+- Agent passing wrong MCP server name, tool name, or arguments — verify the error message is clear and includes the original MCP error
+- Agent using correct parameters — verify the full polling pipeline works
+- `mcp_sentinel_read` offset/limit pagination
+- `mcp_sentinel_attach` blocking wait with `ctx.abort`
+- `mcp_sentinel_status` list/cancel actions
+- Long-running task simulation (mock-ci 8-stage progression)
