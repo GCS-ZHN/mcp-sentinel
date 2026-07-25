@@ -4,6 +4,7 @@
 
 - Never make changes directly on `main`. Create or switch to a feature branch first.
 - Do not commit, amend, rebase, or push unless explicitly asked.
+- Pushing to remote and creating releases/tags requires explicit user authorization.
 
 ## Commands
 
