@@ -78,28 +78,40 @@ You will receive a prompt notification with the result when done. Use sentinel_s
 
     let until: SentinelRequest["until"];
     try {
-      until = JSON.parse(args.until);
+      const parsed = JSON.parse(args.until);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return "Error: until must be a JSON object describing a condition.";
+      }
+      until = parsed as SentinelRequest["until"];
     } catch {
-      return "Error: Invalid JSON for until parameter.";
+      return "Error: Invalid JSON for until parameter. Must be a valid JSON object.";
+    }
+
+    if (!args.server.trim() || !args.tool.trim()) {
+      return "Error: server and tool must be non-empty strings.";
     }
 
     const configResult = await _client.config.get();
     const rawConfig = configResult.data ?? {};
     const mcpConfig = parseMcpConfig(rawConfig);
 
-    const request: SentinelRequest = {
-      server: args.server,
-      tool: args.tool,
-      args: toolArgs,
-      interval: args.interval,
-      timeout: args.timeout,
-      until,
-      sessionID: ctx.sessionID,
-    };
+    try {
+      const request: SentinelRequest = {
+        server: args.server,
+        tool: args.tool,
+        args: toolArgs,
+        interval: args.interval,
+        timeout: args.timeout,
+        until,
+        sessionID: ctx.sessionID,
+      };
 
-    const id = await startSentinel(request, mcpConfig);
+      const id = await startSentinel(request, mcpConfig);
 
-    return `Sentinel started.\n\n**ID:** \`${id}\`\n**Server:** ${request.server}\n**Tool:** ${request.tool}\n**Interval:** ${request.interval ?? 5000}ms\n**Timeout:** ${request.timeout ? request.timeout + "ms" : "none"}\n\nUse \`sentinel_status\` to check progress or cancel.`;
+      return `Sentinel started.\n\n**ID:** \`${id}\`\n**Server:** ${request.server}\n**Tool:** ${request.tool}\n**Interval:** ${request.interval ?? 5000}ms\n**Timeout:** ${request.timeout ? request.timeout + "ms" : "none"}\n\nUse \`sentinel_status\` to check progress or cancel.`;
+    } catch (err) {
+      return `Error: ${String(err)}`;
+    }
   },
 });
 
@@ -113,6 +125,7 @@ Actions:
   args: {
     action: tool.schema
       .enum(["status", "list", "cancel"])
+      .optional()
       .describe("Action: status of a sentinel, list active tasks, or cancel a task"),
     id: tool.schema.string().optional().describe("Sentinel ID (required for status and cancel)"),
   },
