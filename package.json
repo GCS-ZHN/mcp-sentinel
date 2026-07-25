@@ -33,7 +33,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/tickernelz/opencode-mcp-sentinel.git"
+    "url": "git+https://github.com/GCS-ZHN/opencode-mcp-sentinel.git"
   },
   "publishConfig": {
     "access": "public"
