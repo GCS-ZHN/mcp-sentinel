@@ -68,29 +68,48 @@ The plugin reads your existing MCP server configs — no additional setup needed
 
 ## Tools
 
-### `poll_mcp`
+### `mcp_sentinel_poll`
 
-Submit a long-running MCP tool call and poll it at regular intervals until a condition is met.
+Submit a long-running MCP tool call and poll it at regular intervals until a condition is met. The sentinel polls silently (zero token cost) and notifies you when done.
 
-| Parameter  | Type   | Default    | Description                            |
-| ---------- | ------ | ---------- | -------------------------------------- |
-| `server`   | string | _required_ | MCP server name (from opencode config) |
-| `tool`     | string | _required_ | Tool name to call on the server        |
-| `args`     | string | `"{}"`     | JSON string of arguments for the tool  |
-| `interval` | number | `5000`     | Poll interval in milliseconds          |
-| `timeout`  | number | `600000`   | Maximum poll duration in milliseconds  |
-| `until`    | string | _required_ | JSON condition object                  |
+| Parameter  | Type   | Default    | Description                                |
+| ---------- | ------ | ---------- | ------------------------------------------ |
+| `server`   | string | _required_ | MCP server name (from opencode config)     |
+| `tool`     | string | _required_ | Tool name to call on the server            |
+| `args`     | string | `"{}"`     | JSON string of arguments for the tool      |
+| `interval` | number | `5000`     | Poll interval in milliseconds              |
+| `timeout`  | number | _optional_ | Max poll duration in ms (unset = no limit) |
+| `until`    | string | _required_ | JSON condition object                      |
 
-Returns a poll ID immediately. The agent is notified via prompt injection when the condition is met or the poll times out.
+Returns a sentinel ID immediately. Agent is notified via `promptAsync` when done.
 
-### `poll_status`
+### `mcp_sentinel_status`
 
-Check the status of sentinel polls.
+Check the status of sentinel tasks, list active tasks, or cancel a running task.
 
-| Parameter | Type                                 | Description                                  |
-| --------- | ------------------------------------ | -------------------------------------------- |
-| `action`  | `"status"` \| `"list"` \| `"cancel"` | Action to perform                            |
-| `poll_id` | string                               | Poll ID (required for `status` and `cancel`) |
+| Parameter | Type                                 | Description                                      |
+| --------- | ------------------------------------ | ------------------------------------------------ |
+| `action`  | `"status"` \| `"list"` \| `"cancel"` | Action to perform                                |
+| `id`      | string                               | Sentinel ID (required for `status` and `cancel`) |
+
+### `mcp_sentinel_attach`
+
+Block the agent, waiting for a sentinel task to complete. Sleeps and checks status internally with zero token cost. If cancelled via `ctx.abort`, the background async notification still fires normally.
+
+| Parameter | Type   | Default    | Description                                     |
+| --------- | ------ | ---------- | ----------------------------------------------- |
+| `id`      | string | _required_ | Sentinel ID to wait for                         |
+| `timeout` | number | _optional_ | Max wait time in ms (unset = wait indefinitely) |
+
+### `mcp_sentinel_read`
+
+Read raw poll outputs from a sentinel task. Useful for debugging when a condition isn't matching — inspect actual MCP responses. Supports range-based pagination via `offset`.
+
+| Parameter | Type   | Default    | Description                             |
+| --------- | ------ | ---------- | --------------------------------------- |
+| `id`      | string | _required_ | Sentinel ID to read outputs from        |
+| `offset`  | number | `end-N`    | 0-based start index (default: from end) |
+| `limit`   | number | `5`        | Max number of outputs to return         |
 
 ## Condition Model
 

@@ -50,7 +50,7 @@ export async function getOrCreateClient(name: string, config: McpServerConfig): 
   }
 
   const client = new Client(
-    { name: "opencode-mcp-sentinel", version: "0.1.0" },
+    { name: "opencode-mcp-sentinel", version: "0.3.0" },
     { capabilities: {} }
   );
 

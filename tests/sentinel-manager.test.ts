@@ -197,4 +197,24 @@ describe("sentinel-manager", () => {
     cleanup();
     expect(getActiveSentinels().length).toBe(0);
   });
+
+  it("cancelled sentinel has status 'cancelled' not 'completed'", async () => {
+    const config = parseMcpConfig({
+      mcp: { f: { type: "remote", url: "http://localhost:7" } },
+    });
+    const id = await startSentinel(
+      {
+        server: "f",
+        tool: "t",
+        args: {},
+        until: { path: "x", is: "eq", value: 1 },
+        sessionID: "s1",
+      },
+      config
+    );
+    cancelSentinel(id);
+    const task = getSentinelTask(id);
+    expect(task?.status).toBe("cancelled");
+    expect(task?.status).not.toBe("completed");
+  });
 });
