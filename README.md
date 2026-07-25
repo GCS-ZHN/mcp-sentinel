@@ -52,12 +52,6 @@ sequenceDiagram
 opencode plugin -g opencode-mcp-sentinel
 ```
 
-Or via npm:
-
-```bash
-npm install opencode-mcp-sentinel
-```
-
 Then add to your `opencode.jsonc`:
 
 ```jsonc
