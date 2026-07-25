@@ -2,6 +2,12 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { McpServerConfig, McpLocalConfig, McpRemoteConfig } from "./types.js";
+import pkg from "../../package.json" with { type: "json" };
+
+const CLIENT_INFO = {
+  name: pkg.name ?? "opencode-mcp-sentinel",
+  version: pkg.version ?? "0.0.0",
+};
 
 interface ConnectionEntry {
   client: Client;
@@ -49,10 +55,7 @@ export async function getOrCreateClient(name: string, config: McpServerConfig): 
     return existing.client;
   }
 
-  const client = new Client(
-    { name: "opencode-mcp-sentinel", version: "0.3.0" },
-    { capabilities: {} }
-  );
+  const client = new Client(CLIENT_INFO, { capabilities: {} });
 
   const transport = await createTransport(config);
   await client.connect(transport);
@@ -69,7 +72,12 @@ export async function callTool(
   const result = await client.callTool({ name: toolName, arguments: args });
 
   if (result.isError) {
-    throw new Error(`MCP tool call error: ${JSON.stringify(result.content)}`);
+    const errorContent = result.content as Array<{ type: string; text?: string }>;
+    const texts = errorContent
+      .filter((c) => c.type === "text" && typeof c.text === "string")
+      .map((c) => c.text!);
+    const message = texts.length > 0 ? texts.join("\n") : JSON.stringify(result.content);
+    throw new Error(`MCP tool call error: ${message}`);
   }
 
   const content = result.content as Array<{ type: string; text?: string }>;
