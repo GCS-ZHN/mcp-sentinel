@@ -22,8 +22,9 @@ export async function startSentinel(
   mcpConfig: McpConfig
 ): Promise<string> {
   const id = generateId();
-  const interval = request.interval ?? 5000;
-  const timeout = request.timeout;
+  const interval = Math.max(request.interval ?? 5000, 1000);
+  const timeout =
+    request.timeout != null && request.timeout > 0 ? Math.max(request.timeout, 5000) : undefined;
 
   const serverConfig = lookupServer(mcpConfig, request.server);
   if (!serverConfig) {

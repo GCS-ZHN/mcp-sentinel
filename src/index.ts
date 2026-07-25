@@ -51,11 +51,9 @@ You will receive a prompt notification with the result when done. Use sentinel_s
     timeout: tool.schema
       .number()
       .int()
-      .min(5000)
+      .min(0)
       .optional()
-      .describe(
-        "Maximum poll duration in milliseconds (optional, polls until condition met if unset)"
-      ),
+      .describe("Maximum poll duration in milliseconds (0 or unset = no limit)"),
     until: tool.schema
       .string()
       .describe(
@@ -198,9 +196,9 @@ Parameters:
     timeout: tool.schema
       .number()
       .int()
-      .min(1000)
+      .min(0)
       .optional()
-      .describe("Maximum wait time in milliseconds (optional)"),
+      .describe("Maximum wait time in milliseconds (0 or unset = no limit)"),
   },
   async execute(args, ctx) {
     const task = getSentinelTask(args.id);
@@ -249,7 +247,7 @@ Parameters:
         return `Sentinel \`${args.id}\` failed: ${current.error || "unknown error"}`;
       }
 
-      if (args.timeout && Date.now() - startedAt >= args.timeout) {
+      if (args.timeout && args.timeout > 0 && Date.now() - startedAt >= args.timeout) {
         return `Attach timed out after ${args.timeout}ms. Sentinel \`${args.id}\` is still running (${current.pollCount} polls so far).`;
       }
 
