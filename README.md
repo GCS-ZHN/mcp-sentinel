@@ -4,18 +4,47 @@ A plugin for [OpenCode](https://opencode.ai) that acts as a **sentinel** between
 
 ## Motivation
 
-When an agent submits a long-running job through an MCP tool (CI pipeline, data processing, model training, etc.), it must repeatedly call the MCP server to check progress:
+When an agent submits a long-running job through an MCP tool, it must repeatedly call the server to check progress — each round-trip burns context window tokens.
 
-```
-agent → MCP tool (check status) → LLM inference (tokens consumed)
-agent → MCP tool (check status) → LLM inference (tokens consumed)
-...
-agent → result received
-```
+```mermaid
+sequenceDiagram
+    participant A as Agent (LLM)
+    participant M as MCP Server
 
-Each round-trip burns context window tokens. For tasks that run minutes or hours, this is both expensive and wasteful.
+    Note over A: Without sentinel
+    A->>M: check status
+    M-->>A: running...
+    Note over A: token cost 💸
+    A->>M: check status
+    M-->>A: running...
+    Note over A: token cost 💸
+    A->>M: check status
+    M-->>A: completed ✓
+    Note over A: token cost 💸
+```
 
 **opencode-mcp-sentinel** moves the polling loop out of the agent and into the plugin runtime — 2 inference calls regardless of task duration.
+
+```mermaid
+sequenceDiagram
+    participant A as Agent (LLM)
+    participant S as Sentinel Plugin
+    participant M as MCP Server
+
+    A->>S: poll_mcp(server, tool, until)
+    Note over A: token cost 💸 (once)
+
+    loop silent polling (zero tokens)
+        S->>M: call tool
+        M-->>S: running...
+        S->>S: evaluate condition
+    end
+
+    S->>M: call tool
+    M-->>S: completed ✓
+    S->>A: promptAsync(result)
+    Note over A: token cost 💸 (once)
+```
 
 ## Installation
 
@@ -118,30 +147,64 @@ items[2].name        → obj.items[2].name
 
 ## Architecture
 
+```mermaid
+flowchart TB
+    subgraph Agent["Agent (LLM)"]
+        PM[poll_mcp tool call]
+        PS[poll_status tool call]
+    end
+
+    subgraph Plugin["opencode-mcp-sentinel"]
+        direction TB
+        H[Tool Handlers]
+        CR[Config Reader<br/>reads opencode config.mcp]
+        CM[Connection Manager<br/>@modelcontextprotocol/sdk]
+        PL[Poll Loop<br/>+ Condition Evaluator]
+        NOTIFY[session.promptAsync]
+
+        H --> CR
+        H --> PL
+        PL --> CM
+        PL --> NOTIFY
+        CR --> CM
+        NOTIFY --> OUT
+    end
+
+    subgraph External[" "]
+        OC[OpenCode Config<br/>opencode.jsonc]
+        MCP[MCP Server<br/>any server]
+        OUT[Agent Notification]
+    end
+
+    PM --> H
+    PS --> H
+    OC --> CR
+    CM <--> MCP
 ```
-┌──────────┐     poll_mcp()      ┌────────────────────┐
-│  Agent   │ ──────────────────> │  opencode-mcp-     │
-│  (LLM)   │ <── promptAsync()   │  sentinel           │
-└──────────┘                     │                     │
-                                 │  ┌───────────────┐  │
-                                 │  │ Config reader │  │
-                                 │  │ (from opencode│  │
-                                 │  │  config.mcp)  │  │
-                                 │  └───────┬───────┘  │
-                                 │          │          │
-                                 │  ┌───────▼───────┐  │
-                                 │  │ MCP client    │  │
-                                 │  │ (@model-      │  │
-                                 │  │  context/     │  │
-                                 │  │  protocol/sdk)│  │
-                                 │  └───────┬───────┘  │
-                                 │          │          │
-                                 │  ┌───────▼───────┐  │
-                                 │  │ Poll loop     │  │
-                                 │  │ + condition   │  │
-                                 │  │ evaluator     │  │
-                                 │  └───────────────┘  │
-                                 └─────────────────────┘
+
+### Data Flow
+
+```mermaid
+sequenceDiagram
+    participant A as Agent (LLM)
+    participant P as Sentinel Plugin
+    participant C as Config
+    participant M as MCP Server
+
+    A->>P: poll_mcp(server, tool, args, until)
+    P->>C: config.get()
+    C-->>P: mcp servers config
+    P->>M: connect (stdio/http)
+    P-->>A: poll ID (acknowledgment)
+
+    loop every interval ms
+        P->>M: call tool(args)
+        M-->>P: response
+        P->>P: evaluateCondition(until, response)
+    end
+
+    P->>A: promptAsync(result)
+    Note over A: polling done — zero token cost during loop
 ```
 
 ## License
