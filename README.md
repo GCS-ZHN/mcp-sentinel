@@ -1,5 +1,9 @@
 # opencode-mcp-sentinel
 
+[![npm version](https://img.shields.io/npm/v/opencode-mcp-sentinel.svg)](https://www.npmjs.com/package/opencode-mcp-sentinel)
+[![npm downloads](https://img.shields.io/npm/dm/opencode-mcp-sentinel.svg)](https://www.npmjs.com/package/opencode-mcp-sentinel)
+[![license](https://img.shields.io/npm/l/opencode-mcp-sentinel.svg)](https://www.npmjs.com/package/opencode-mcp-sentinel)
+
 A plugin for [OpenCode](https://opencode.ai) that acts as a **sentinel** between the AI agent and MCP servers — polling long-running tasks on the agent's behalf so that token-costly status loops never enter the LLM inference path.
 
 ## Motivation
