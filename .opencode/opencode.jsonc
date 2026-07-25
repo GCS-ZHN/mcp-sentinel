@@ -1,0 +1,11 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": ["{env:PWD}/src/plugin.ts"],
+  "mcp": {
+    "mock-ci": {
+      "type": "local",
+      "command": ["bun", "run", "{env:PWD}/tests/mock-mcp-server.ts"],
+      "enabled": true
+    }
+  }
+}
