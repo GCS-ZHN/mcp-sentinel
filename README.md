@@ -48,11 +48,15 @@ sequenceDiagram
 
 ## Installation
 
+**Method 1 — CLI**
+
 ```bash
 opencode plugin -g opencode-mcp-sentinel
 ```
 
-Then add to your `opencode.jsonc`:
+**Method 2 — Manual**
+
+Add to your `opencode.jsonc` (project-level `.opencode/opencode.jsonc` or global `~/.config/opencode/opencode.jsonc`):
 
 ```jsonc
 {
