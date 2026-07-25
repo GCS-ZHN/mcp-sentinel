@@ -217,4 +217,26 @@ describe("sentinel-manager", () => {
     expect(task?.status).toBe("cancelled");
     expect(task?.status).not.toBe("completed");
   });
+
+  it("records MCP error with raw message for debugging", async () => {
+    const config = parseMcpConfig({
+      mcp: { bad: { type: "remote", url: "http://localhost:1" } },
+    });
+    const id = await startSentinel(
+      {
+        server: "bad",
+        tool: "test",
+        args: {},
+        until: { path: "x", is: "eq", value: 1 },
+        sessionID: "s1",
+      },
+      config
+    );
+    await new Promise((r) => setTimeout(r, 500));
+    const task = getSentinelTask(id);
+    expect(task?.status).toBe("error");
+    expect(task?.error).toBeTruthy();
+    // error should contain debugging info, not just a generic message
+    expect(task!.error!.length).toBeGreaterThan(10);
+  });
 });

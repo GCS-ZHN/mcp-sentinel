@@ -117,7 +117,8 @@ Actions:
     id: tool.schema.string().optional().describe("Sentinel ID (required for status and cancel)"),
   },
   async execute(args) {
-    switch (args.action) {
+    const action = args.action ?? "status";
+    switch (action) {
       case "status": {
         if (!args.id) {
           return "Error: id is required for status action.";
@@ -165,6 +166,8 @@ Actions:
           ? `Sentinel \`${args.id}\` cancelled.`
           : `Sentinel \`${args.id}\` not found or already completed.`;
       }
+      default:
+        return `Unknown action: ${action}. Use "status", "list", or "cancel".`;
     }
   },
 });
