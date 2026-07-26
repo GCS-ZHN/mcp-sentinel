@@ -9,6 +9,25 @@ import {
 } from "../src/services/sentinel-manager.js";
 import { parseMcpConfig } from "../src/services/config-reader.js";
 
+function withEnv(key: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[key];
+  } else {
+    process.env[key] = value;
+  }
+}
+
+async function waitForStatus(id: string, expectedStatus: string, timeoutMs = 10000): Promise<void> {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    const task = getSentinelTask(id);
+    if (!task) return; // task was cleaned up (e.g., TTL fired)
+    if (task.status === expectedStatus) return;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error(`Task ${id} did not reach "${expectedStatus}" within ${timeoutMs}ms`);
+}
+
 function createMockClient() {
   return {
     session: {
@@ -232,11 +251,86 @@ describe("sentinel-manager", () => {
       },
       config
     );
-    await new Promise((r) => setTimeout(r, 500));
+    await waitForStatus(id, "error");
     const task = getSentinelTask(id);
     expect(task?.status).toBe("error");
     expect(task?.error).toBeTruthy();
     // error should contain debugging info, not just a generic message
     expect(task!.error!.length).toBeGreaterThan(10);
+  });
+
+  it("auto-cleans error task after TTL", async () => {
+    withEnv("SENTINEL_TASK_TTL_MS", "50");
+
+    const config = parseMcpConfig({
+      mcp: { ttl1: { type: "remote", url: "http://localhost:1" } },
+    });
+    const id = await startSentinel(
+      {
+        server: "ttl1",
+        tool: "test",
+        args: {},
+        until: { path: "x", is: "eq", value: 1 },
+        sessionID: "s1",
+      },
+      config
+    );
+    await waitForStatus(id, "error");
+    // wait for TTL to fire
+    await new Promise((r) => setTimeout(r, 200));
+    expect(getSentinelTask(id)).toBeUndefined();
+
+    withEnv("SENTINEL_TASK_TTL_MS", undefined);
+  });
+
+  it("auto-cleans cancelled task after TTL", async () => {
+    withEnv("SENTINEL_TASK_TTL_MS", "50");
+
+    const config = parseMcpConfig({
+      mcp: { ttl2: { type: "remote", url: "http://localhost:2" } },
+    });
+    const id = await startSentinel(
+      {
+        server: "ttl2",
+        tool: "test",
+        args: {},
+        until: { path: "x", is: "eq", value: 1 },
+        sessionID: "s1",
+      },
+      config
+    );
+    cancelSentinel(id);
+    // wait for TTL
+    await new Promise((r) => setTimeout(r, 200));
+    expect(getSentinelTask(id)).toBeUndefined();
+
+    withEnv("SENTINEL_TASK_TTL_MS", undefined);
+  });
+
+  it("does not auto-clean when TTL is unset", async () => {
+    const config = parseMcpConfig({
+      mcp: { nottl: { type: "remote", url: "http://localhost:3" } },
+    });
+    const id = await startSentinel(
+      {
+        server: "nottl",
+        tool: "test",
+        args: {},
+        until: { path: "x", is: "eq", value: 1 },
+        sessionID: "s1",
+      },
+      config
+    );
+    await waitForStatus(id, "error");
+    // should still be there after a delay
+    await new Promise((r) => setTimeout(r, 200));
+    expect(getSentinelTask(id)).toBeDefined();
+  });
+
+  it("cleanup also clears pending TTL timers", () => {
+    withEnv("SENTINEL_TASK_TTL_MS", "999999");
+    // cleanup() removes all tasks and clears timers — verify it doesn't throw
+    cleanup();
+    withEnv("SENTINEL_TASK_TTL_MS", undefined);
   });
 });
