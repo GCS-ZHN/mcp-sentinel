@@ -11,6 +11,7 @@ import {
   cleanup,
 } from "./services/sentinel-manager.js";
 import { disconnectAll } from "./services/mcp-connection-manager.js";
+import { setLogClient, logInfo } from "./services/logger.js";
 import type { SentinelRequest } from "./services/types.js";
 
 let _client: OpencodeClient | null = null;
@@ -330,6 +331,8 @@ async function shutdown() {
 export async function OpenCodeSentinelPlugin(input: PluginInput): Promise<Hooks> {
   _client = input.client;
   setNotifyFn(input.client);
+  setLogClient(input.client);
+  logInfo("MCP Sentinel plugin initialized");
 
   process.on("SIGINT", () => {
     void shutdown();
