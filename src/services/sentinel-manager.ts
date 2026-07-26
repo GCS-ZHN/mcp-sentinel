@@ -1,11 +1,14 @@
 import { evaluateCondition } from "./condition-evaluator.js";
 import { getOrCreateClient, callTool } from "./mcp-connection-manager.js";
 import { lookupServer } from "./config-reader.js";
+import { getMaxPollLog, getTaskTtlMs } from "./sentinel-config.js";
+import { logInfo, logWarn, logError, logDebug } from "./logger.js";
 import type { SentinelRequest, SentinelTask, McpConfig } from "./types.js";
 import type { OpencodeClient } from "@opencode-ai/sdk";
 
 const activeSentinels = new Map<string, SentinelTask>();
 const activeTimers = new Map<string, ReturnType<typeof setInterval>>();
+const cleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 let _client: OpencodeClient | null = null;
 
@@ -54,6 +57,17 @@ export async function startSentinel(
       t.pollCount++;
       t.lastResult = result;
       t.pollLog.push({ index: t.pollCount, time: Date.now(), result });
+      const maxLog = getMaxPollLog();
+      if (maxLog !== undefined && t.pollLog.length > maxLog) {
+        t.pollLog = t.pollLog.slice(-maxLog);
+        logDebug(`Trimming pollLog to ${maxLog} entries`, { id, pollCount: t.pollCount });
+      }
+
+      logDebug(`Poll #${t.pollCount}`, {
+        id,
+        server: request.server,
+        tool: request.tool,
+      });
 
       if (evaluateCondition(request.until, result)) {
         await resolveSentinel(id, result);
@@ -64,6 +78,13 @@ export async function startSentinel(
       t.error = String(err);
       t.resolvedAt = Date.now();
       stopTimers(id);
+      scheduleTaskCleanup(id);
+      logError(`Poll failed: ${String(err)}`, {
+        id,
+        server: request.server,
+        tool: request.tool,
+        pollCount: t.pollCount,
+      });
       await notify(id, request.sessionID, "failed", String(err));
     }
 
@@ -71,6 +92,13 @@ export async function startSentinel(
       t.status = "timeout";
       t.resolvedAt = Date.now();
       stopTimers(id);
+      scheduleTaskCleanup(id);
+      logWarn(`Task timed out after ${t.pollCount} polls`, {
+        id,
+        server: request.server,
+        tool: request.tool,
+        timeout,
+      });
       await notify(id, request.sessionID, "timeout", null);
     }
   };
@@ -91,6 +119,14 @@ async function resolveSentinel(id: string, result: unknown): Promise<void> {
   task.resolvedAt = Date.now();
   task.lastResult = result;
   stopTimers(id);
+  scheduleTaskCleanup(id);
+  logInfo("Task completed", {
+    id,
+    server: task.request.server,
+    tool: task.request.tool,
+    pollCount: task.pollCount,
+    duration: task.resolvedAt - task.createdAt,
+  });
 
   await notify(id, task.request.sessionID, "completed", result);
 }
@@ -139,6 +175,27 @@ function stopTimers(id: string): void {
   }
 }
 
+function scheduleTaskCleanup(id: string): void {
+  const ttl = getTaskTtlMs();
+  if (ttl === undefined) return;
+
+  logDebug(`Scheduling task cleanup in ${ttl}ms`, { id });
+  const timer = setTimeout(() => {
+    activeSentinels.delete(id);
+    cleanupTimers.delete(id);
+    logDebug("Task cleaned up from memory", { id });
+  }, ttl);
+  cleanupTimers.set(id, timer);
+}
+
+function clearTaskCleanup(id: string): void {
+  const timer = cleanupTimers.get(id);
+  if (timer) {
+    clearTimeout(timer);
+    cleanupTimers.delete(id);
+  }
+}
+
 export function cancelSentinel(id: string): boolean {
   const task = activeSentinels.get(id);
   if (!task || task.status !== "polling") return false;
@@ -146,6 +203,8 @@ export function cancelSentinel(id: string): boolean {
   task.status = "cancelled";
   task.resolvedAt = Date.now();
   stopTimers(id);
+  scheduleTaskCleanup(id);
+  logInfo("Task cancelled", { id, server: task.request.server, tool: task.request.tool });
   return true;
 }
 
@@ -160,6 +219,9 @@ export function getActiveSentinels(): SentinelTask[] {
 export function cleanup(): void {
   for (const [id] of activeTimers) {
     stopTimers(id);
+  }
+  for (const [id] of cleanupTimers) {
+    clearTaskCleanup(id);
   }
   activeSentinels.clear();
 }
