@@ -70,6 +70,17 @@ Add to your `opencode.jsonc` (project-level `.opencode/opencode.jsonc` or global
 
 The plugin reads your existing MCP server configs — no additional setup needed.
 
+## Configuration
+
+Environment variables for controlling memory usage:
+
+| Variable                | Default   | Description                                       |
+| ----------------------- | --------- | ------------------------------------------------- |
+| `SENTINEL_MAX_POLL_LOG` | unlimited | Max poll log entries per task (FIFO trim)         |
+| `SENTINEL_TASK_TTL_MS`  | unlimited | Auto-cleanup completed tasks after N milliseconds |
+
+Both accept positive integers only. Zero, negative, or non-numeric values are treated as unlimited/disabled.
+
 ## Tools
 
 ### `mcp_sentinel_poll`
