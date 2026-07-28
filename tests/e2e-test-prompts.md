@@ -125,3 +125,70 @@ Use mcp_sentinel_poll against mock-ci get_job_status (job_id='cancel-test', 5s, 
 ```
 
 Expected: status=cancelled
+
+## 16. Session expiry recovery (requires remote mock-ci server)
+
+### Setup
+
+```bash
+# Start the HTTP mock server in background (session expires after 3 tool calls)
+pty_spawn command=bun args=["run","tests/mock-mcp-server.ts","--transport=http"] notifyOnExit=true
+```
+
+Add to `.opencode/opencode.jsonc`:
+
+```jsonc
+"mcp": {
+  "mock-ci": {
+    "type": "local",
+    "command": ["bun", "run", "{env:PWD}/tests/mock-mcp-server.ts"],
+    "enabled": true
+  },
+  "mock-ci-http": {
+    "type": "remote",
+    "url": "http://localhost:19879/mcp",
+    "enabled": true
+  }
+}
+```
+
+Then run:
+
+```
+Use mcp_sentinel_poll server=mock-ci-http tool=get_job_status args={"job_id":"e2e-expiry"} interval=1000 until={"path":"status","is":"eq","value":"completed"} timeout=60000. The session will expire after 3 tool calls causing a 404 error — the sentinel MUST reconnect and continue polling until the job completes.
+```
+
+Expected: sentinel completes with status=completed, not error. Poll count > 3 (survived session expiry).
+
+## 17. MCP server temporary network failure (connection refused / timeout)
+
+```
+Start a mock HTTP server, submit a job, start a sentinel. Then kill the HTTP server briefly and restart it. The sentinel should survive and eventually complete.
+
+Steps:
+1. Start mock-ci-http server
+2. Use mcp_sentinel_poll server=mock-ci-http tool=get_job_status args={"job_id":"e2e-reconnect"} interval=1000 until={"path":"status","is":"eq","value":"completed"} timeout=120000
+3. Kill the HTTP server process for 3-5 seconds
+4. Restart the HTTP server
+5. Wait for sentinel to complete
+```
+
+Expected: sentinel recovers after server comes back, completes successfully. No "error" status.
+
+## 18. Non-existent MCP tool on remote server (error passthrough)
+
+```
+Use mcp_sentinel_poll server=mock-ci-http tool=nonexistent args={"job_id":"e2e-err"} interval=2000 timeout=10000 until={"path":"x","is":"eq","value":"y"}.
+```
+
+Expected: raw MCP error `-32602: Tool nonexistent not found` passed through verbatim.
+
+## 19. Plugin-level reconnection unit verification
+
+In addition to the integration test, the following unit test guarantees are verified:
+
+1. `isConnectionError` detects: 404, "Session not found", "Not connected", ECONNREFUSED, ECONNRESET, ETIMEDOUT, "fetch failed", 5xx
+2. `isConnectionError` does NOT detect: 403, 401, "Tool not found", null, undefined
+3. `callTool` reconnects on session expiry (404) and returns valid result
+4. Subsequent tool calls use the newly cached (healthy) connection
+5. Dead clients are evicted from connection cache on connection error

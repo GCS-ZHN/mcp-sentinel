@@ -13,6 +13,8 @@ interface ConnectionEntry {
   client: Client;
   connectedAt: number;
   lastUsedAt: number;
+  serverName: string;
+  serverConfig: McpServerConfig;
 }
 
 const connections = new Map<string, ConnectionEntry>();
@@ -60,11 +62,69 @@ export async function getOrCreateClient(name: string, config: McpServerConfig): 
   const transport = await createTransport(config);
   await client.connect(transport);
 
-  connections.set(key, { client, connectedAt: now, lastUsedAt: now });
+  connections.set(key, {
+    client,
+    serverName: name,
+    serverConfig: config,
+    connectedAt: now,
+    lastUsedAt: now,
+  });
   return client;
 }
 
+export function isConnectionError(err: unknown): boolean {
+  if (err == null) return false;
+
+  const code = (err as { code?: number }).code;
+  if (code === 404) return true;
+  if (code !== undefined && code >= 500 && code < 600) return true;
+
+  const message = String((err as { message?: string }).message ?? err ?? "");
+  if (message.includes("Session not found")) return true;
+  if (message.includes("Not connected")) return true;
+  if (message.includes("ECONNREFUSED")) return true;
+  if (message.includes("ECONNRESET")) return true;
+  if (message.includes("ETIMEDOUT")) return true;
+  if (message.includes("fetch failed")) return true;
+
+  return false;
+}
+
+function evictCachedClient(client: Client): ConnectionEntry | undefined {
+  for (const [key, entry] of connections) {
+    if (entry.client === client) {
+      connections.delete(key);
+      return entry;
+    }
+  }
+  return undefined;
+}
+
 export async function callTool(
+  client: Client,
+  toolName: string,
+  args: Record<string, unknown>
+): Promise<unknown> {
+  try {
+    return await invokeTool(client, toolName, args);
+  } catch (err) {
+    if (!isConnectionError(err)) throw err;
+
+    const entry = evictCachedClient(client);
+    try {
+      await client.close();
+    } catch {
+      // dead transport — close may also throw
+    }
+
+    if (!entry) throw err;
+
+    const fresh = await getOrCreateClient(entry.serverName, entry.serverConfig);
+    return await invokeTool(fresh, toolName, args);
+  }
+}
+
+async function invokeTool(
   client: Client,
   toolName: string,
   args: Record<string, unknown>
