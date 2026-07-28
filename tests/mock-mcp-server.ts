@@ -165,12 +165,23 @@ async function startHttpServer() {
     async fetch(req) {
       requestCount++;
       const sessionId = req.headers.get("mcp-session-id");
+      const accept = req.headers.get("accept");
 
       let body: any;
       try {
         body = await req.json();
       } catch {
         body = {};
+      }
+
+      console.error(
+        `[mock-http] #${requestCount} ${req.method} sess=${sessionId?.slice(0, 8) ?? "-"} method=${body.method ?? "-"} accept=${accept?.slice(0, 30) ?? "-"}`
+      );
+
+      // MCP Streamable HTTP spec: GET for SSE streaming.
+      // We don't support SSE — reject with 405 per spec.
+      if (req.method === "GET") {
+        return new Response("SSE not supported", { status: 405 } as any);
       }
 
       try {
