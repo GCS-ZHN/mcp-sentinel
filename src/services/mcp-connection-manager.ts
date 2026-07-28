@@ -29,6 +29,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { McpServerConfig, McpLocalConfig, McpRemoteConfig } from "./types.js";
+import { logDebug } from "./logger.js";
 import pkg from "../../package.json" with { type: "json" };
 
 /** MCP client info derived from `package.json` at build time. */
@@ -62,6 +63,29 @@ interface ConnectionEntry {
  * Each entry holds a connected {@link Client} instance.
  */
 const connections = new Map<string, ConnectionEntry>();
+
+/**
+ * Per-client reconnection metadata stored via a {@link WeakMap}.
+ *
+ * When concurrent polls share the same cached client and both encounter a
+ * connection error, the first poll evicts the entry from `connections`.
+ * The second poll — which no longer finds an entry — falls back to this
+ * WeakMap to obtain the `serverName`/`serverConfig` needed for reconnect.
+ *
+ * Using a WeakMap ensures the metadata is garbage-collected when the
+ * `Client` itself is no longer referenced.
+ */
+const clientMeta = new WeakMap<Client, { serverName: string; serverConfig: McpServerConfig }>();
+
+/**
+ * In-flight connection promises keyed by cache key.
+ *
+ * When multiple callers (e.g. concurrent sentinel polls against the same
+ * server) invoke {@link getOrCreateClient} simultaneously after a cache
+ * eviction, only the first caller creates the connection. Others await
+ * the same promise, preventing orphaned duplicate connections.
+ */
+const pendingConnections = new Map<string, Promise<Client>>();
 
 /**
  * Generate a deterministic cache key from a server name and config.
@@ -127,10 +151,33 @@ export async function getOrCreateClient(name: string, config: McpServerConfig): 
     return existing.client;
   }
 
+  // Deduplicate concurrent connection attempts for the same server key.
+  // If two sentinels race to reconnect after cache eviction, only one
+  // creates the transport — the other awaits the same promise.
+  const pending = pendingConnections.get(key);
+  if (pending) return pending;
+
+  const promise = doConnect(name, config, key, now);
+  pendingConnections.set(key, promise);
+  try {
+    return await promise;
+  } finally {
+    pendingConnections.delete(key);
+  }
+}
+
+async function doConnect(
+  name: string,
+  config: McpServerConfig,
+  key: string,
+  now: number
+): Promise<Client> {
   const client = new Client(CLIENT_INFO, { capabilities: {} });
 
   const transport = await createTransport(config);
   await client.connect(transport);
+
+  clientMeta.set(client, { serverName: name, serverConfig: config });
 
   connections.set(key, {
     client,
@@ -173,6 +220,7 @@ export function isConnectionError(err: unknown): boolean {
   const message = String((err as { message?: string }).message ?? err ?? "");
   if (message.includes("Session not found")) return true;
   if (message.includes("Not connected")) return true;
+  if (message.includes("Connection closed")) return true;
   if (message.includes("ECONNREFUSED")) return true;
   if (message.includes("ECONNRESET")) return true;
   if (message.includes("ETIMEDOUT")) return true;
@@ -242,8 +290,21 @@ export async function callTool(
       // dead transport — close may also throw, ignore
     }
 
-    if (!entry) throw err;
+    if (!entry) {
+      const meta = clientMeta.get(client);
+      if (meta) {
+        logDebug(`Reconnecting (concurrent-eviction fallback)`, {
+          server: meta.serverName,
+        });
+        const fresh = await getOrCreateClient(meta.serverName, meta.serverConfig);
+        return await invokeTool(fresh, toolName, args);
+      }
+      throw err;
+    }
 
+    logDebug(`Reconnecting after connection error`, {
+      server: entry.serverName,
+    });
     const fresh = await getOrCreateClient(entry.serverName, entry.serverConfig);
     return await invokeTool(fresh, toolName, args);
   }
@@ -312,6 +373,7 @@ export async function disconnectAll(): Promise<void> {
     }
   }
   connections.clear();
+  pendingConnections.clear();
 }
 
 /**

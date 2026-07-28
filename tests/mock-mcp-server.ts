@@ -12,7 +12,6 @@
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { z } from "zod/v4";
 
 const STAGES = [
@@ -174,49 +173,33 @@ async function startHttpServer() {
         body = {};
       }
 
-      if (!sessionId) {
-        const newId = `mock-sess-${Date.now()}-${requestCount}`;
-        sessions.set(newId, { callCount: 0 });
-        return new Response(
-          JSON.stringify({
-            jsonrpc: "2.0",
-            id: body.id ?? 0,
-            result: {
-              protocolVersion: "2025-03-26",
-              capabilities: { tools: {} },
-              serverInfo: { name: "mock-ci-cd", version: "1.0.0" },
-            },
-          }),
-          {
-            status: 200,
-            headers: {
-              "Content-Type": "application/json",
-              "Mcp-Session-Id": newId,
-            },
-          } as any
-        );
-      }
+      try {
+        if (!sessionId) {
+          const newId = `mock-sess-${Date.now()}-${requestCount}`;
+          sessions.set(newId, { callCount: 0 });
+          return new Response(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: body.id ?? 0,
+              result: {
+                protocolVersion: "2025-03-26",
+                capabilities: { tools: {} },
+                serverInfo: { name: "mock-ci-cd", version: "1.0.0" },
+              },
+            }),
+            {
+              status: 200,
+              headers: {
+                "Content-Type": "application/json",
+                "Mcp-Session-Id": newId,
+              },
+            } as any
+          );
+        }
 
-      let session = sessions.get(sessionId);
-      if (!session) {
-        // Unknown session — let server handle it with 404
-        return new Response(
-          JSON.stringify({
-            jsonrpc: "2.0",
-            id: "server-error",
-            error: { code: -32600, message: "Session not found" },
-          }),
-          { status: 404, headers: { "Content-Type": "application/json" } } as any
-        );
-      }
-
-      const isToolCall = body.method === "tools/call";
-
-      if (isToolCall) {
-        session.callCount++;
-
-        if (session.callCount > EXPIRE_AFTER_TOOL_CALLS) {
-          sessions.delete(sessionId);
+        let session = sessions.get(sessionId);
+        if (!session) {
+          // Unknown session — let server handle it with 404
           return new Response(
             JSON.stringify({
               jsonrpc: "2.0",
@@ -226,107 +209,135 @@ async function startHttpServer() {
             { status: 404, headers: { "Content-Type": "application/json" } } as any
           );
         }
-      }
 
-      // Handle tool execution using the actual McpServer logic
-      // (we parse method/params and route to our tool implementations)
-      let toolResult: any;
-      if (body.method === "tools/call") {
-        const { name, arguments: args } = body.params ?? {};
-        if (name === "submit_job") {
-          const id = `job-${Date.now()}`;
-          toolResult = {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify({
-                  job_id: id,
-                  name: args?.name,
-                  status: "pending",
-                  progress: 0,
-                  stages: STAGES.length,
-                }),
-              },
-            ],
-          };
-        } else if (name === "get_job_status") {
-          globalPollCount++;
-          const elapsed = ((Date.now() - serverStartTime) / 1000).toFixed(1);
-          const complete = globalPollCount > RUNNING_POLLS;
-          const currentStageIdx = complete
-            ? STAGES.length - 1
-            : Math.min(Math.floor((globalPollCount - 1) / POLLS_PER_STAGE), STAGES.length - 1);
-          toolResult = {
-            content: [
-              {
-                type: "text",
-                text: JSON.stringify({
-                  job_id: args?.job_id,
-                  status: complete ? "completed" : "running",
-                  progress: complete
-                    ? 100
-                    : Math.round((globalPollCount / (RUNNING_POLLS + 1)) * 100),
-                  current_stage: complete ? undefined : STAGES[currentStageIdx],
-                  steps: buildSteps(globalPollCount),
-                  poll_count: globalPollCount,
-                  elapsed_seconds: elapsed,
-                }),
-              },
-            ],
-          };
-        } else {
-          toolResult = {
-            content: [{ type: "text", text: JSON.stringify({ ok: true }) }],
-          };
+        const isToolCall = body.method === "tools/call";
+
+        if (isToolCall) {
+          session.callCount++;
+
+          if (session.callCount > EXPIRE_AFTER_TOOL_CALLS) {
+            sessions.delete(sessionId);
+            return new Response(
+              JSON.stringify({
+                jsonrpc: "2.0",
+                id: "server-error",
+                error: { code: -32600, message: "Session not found" },
+              }),
+              { status: 404, headers: { "Content-Type": "application/json" } } as any
+            );
+          }
         }
-      } else if (body.method === "tools/list") {
-        toolResult = {
-          tools: [
-            {
-              name: "submit_job",
-              description: "Submit a CI job.",
-              inputSchema: {
-                type: "object",
-                properties: { name: { type: "string" } },
-                required: ["name"],
-              },
-            },
-            {
-              name: "get_job_status",
-              description: "Get the current status of a CI job.",
-              inputSchema: {
-                type: "object",
-                properties: { job_id: { type: "string" } },
-                required: ["job_id"],
-              },
-            },
-          ],
-        };
-      } else if (body.method === "notifications/initialized") {
-        // Just acknowledge
-        return new Response(null, {
-          status: 202,
-          headers: { "Mcp-Session-Id": sessionId },
-        } as any);
-      } else {
-        // Generic success for other protocol messages (ping, etc.)
-        toolResult = {};
-      }
 
-      return new Response(
-        JSON.stringify({
-          jsonrpc: "2.0",
-          id: body.id ?? 0,
-          result: toolResult,
-        }),
-        {
-          status: 200,
-          headers: {
-            "Content-Type": "application/json",
-            "Mcp-Session-Id": sessionId,
-          },
-        } as any
-      );
+        // Handle tool execution using the actual McpServer logic
+        // (we parse method/params and route to our tool implementations)
+        let toolResult: any;
+        if (body.method === "tools/call") {
+          const { name, arguments: args } = body.params ?? {};
+          if (name === "submit_job") {
+            const id = `job-${Date.now()}`;
+            toolResult = {
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify({
+                    job_id: id,
+                    name: args?.name,
+                    status: "pending",
+                    progress: 0,
+                    stages: STAGES.length,
+                  }),
+                },
+              ],
+            };
+          } else if (name === "get_job_status") {
+            globalPollCount++;
+            const elapsed = ((Date.now() - serverStartTime) / 1000).toFixed(1);
+            const complete = globalPollCount > RUNNING_POLLS;
+            const currentStageIdx = complete
+              ? STAGES.length - 1
+              : Math.min(Math.floor((globalPollCount - 1) / POLLS_PER_STAGE), STAGES.length - 1);
+            toolResult = {
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify({
+                    job_id: args?.job_id,
+                    status: complete ? "completed" : "running",
+                    progress: complete
+                      ? 100
+                      : Math.round((globalPollCount / (RUNNING_POLLS + 1)) * 100),
+                    current_stage: complete ? undefined : STAGES[currentStageIdx],
+                    steps: buildSteps(globalPollCount),
+                    poll_count: globalPollCount,
+                    elapsed_seconds: elapsed,
+                  }),
+                },
+              ],
+            };
+          } else {
+            toolResult = {
+              content: [{ type: "text", text: JSON.stringify({ ok: true }) }],
+            };
+          }
+        } else if (body.method === "tools/list") {
+          toolResult = {
+            tools: [
+              {
+                name: "submit_job",
+                description: "Submit a CI job.",
+                inputSchema: {
+                  type: "object",
+                  properties: { name: { type: "string" } },
+                  required: ["name"],
+                },
+              },
+              {
+                name: "get_job_status",
+                description: "Get the current status of a CI job.",
+                inputSchema: {
+                  type: "object",
+                  properties: { job_id: { type: "string" } },
+                  required: ["job_id"],
+                },
+              },
+            ],
+          };
+        } else if (body.method === "notifications/initialized") {
+          // Just acknowledge
+          return new Response(null, {
+            status: 202,
+            headers: { "Mcp-Session-Id": sessionId },
+          } as any);
+        } else {
+          // Generic success for other protocol messages (ping, etc.)
+          toolResult = {};
+        }
+
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: body.id ?? 0,
+            result: toolResult,
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+              "Mcp-Session-Id": sessionId,
+            },
+          } as any
+        );
+      } catch (err) {
+        console.error("Mock server fetch error:", err);
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: null,
+            error: { code: -32603, message: `Internal error: ${String(err)}` },
+          }),
+          { status: 500, headers: { "Content-Type": "application/json" } } as any
+        );
+      }
     },
   });
 
