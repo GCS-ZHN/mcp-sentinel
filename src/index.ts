@@ -1,3 +1,22 @@
+/**
+ * opencode-mcp-sentinel plugin entry point.
+ *
+ * Defines four agent-visible tools:
+ *
+ * | Tool                     | Purpose                                            |
+ * | ------------------------ | -------------------------------------------------- |
+ * | `mcp_sentinel_poll`      | Start a background polling task against an MCP tool |
+ * | `mcp_sentinel_status`    | Check status, list active tasks, or cancel a task  |
+ * | `mcp_sentinel_attach`    | Block the agent until a sentinel task completes    |
+ * | `mcp_sentinel_read`      | Read raw poll outputs for debugging               |
+ *
+ * All tools return error strings (`"Error: ..."`) to the agent rather than
+ * letting exceptions propagate, ensuring readable feedback even when
+ * parameters are invalid.
+ *
+ * @module
+ */
+
 import { tool } from "@opencode-ai/plugin";
 import type { PluginInput, Hooks } from "@opencode-ai/plugin";
 import type { OpencodeClient } from "@opencode-ai/sdk";
@@ -16,6 +35,16 @@ import type { SentinelRequest } from "./services/types.js";
 
 let _client: OpencodeClient | null = null;
 
+/**
+ * `mcp_sentinel_poll` — submit a long-running MCP tool call and poll it at
+ * regular intervals until a condition is met.
+ *
+ * The sentinel polls silently (zero token cost to the LLM) and notifies the
+ * agent via a prompt notification when the condition is satisfied, the task
+ * errors, or the timeout is reached.
+ *
+ * @see {@link startSentinel} for the core execution logic.
+ */
 const sentinelPollTool = tool({
   description: `Submit a long-running MCP tool call and poll it at regular intervals until a condition is met. The sentinel polls silently (zero token cost) and notifies you when done.
 
@@ -114,6 +143,15 @@ You will receive a prompt notification with the result when done. Use sentinel_s
   },
 });
 
+/**
+ * `mcp_sentinel_status` — check status of sentinel tasks, list all active
+ * tasks, or cancel a running task.
+ *
+ * Actions:
+ * - `"status"` (or omitted): Get details of a specific sentinel (requires `id`).
+ * - `"list"`: List all active sentinel tasks.
+ * - `"cancel"`: Cancel a running sentinel (requires `id`).
+ */
 const sentinelStatusTool = tool({
   description: `Check the status of sentinel tasks, list active tasks, or cancel a running task.
 
@@ -184,6 +222,13 @@ Actions:
   },
 });
 
+/**
+ * `mcp_sentinel_attach` — block the agent, waiting for a sentinel task to
+ * complete.
+ *
+ * Polls `getSentinelTask` every 1000 ms internally (no token cost during
+ * wait). Supports `ctx.abort` for user cancellation.
+ */
 const sentinelAttachTool = tool({
   description: `Block the agent, waiting for a sentinel task to complete. Use this when you want to pause until the result is ready, instead of checking sentinel_status repeatedly.
 
@@ -257,6 +302,13 @@ Parameters:
   },
 });
 
+/**
+ * `mcp_sentinel_read` — read raw poll outputs from a sentinel task.
+ *
+ * Supports offset/limit pagination. Works whether the sentinel is running,
+ * completed, cancelled, or errored. Useful for debugging when a condition
+ * isn't matching — inspect the raw MCP responses.
+ */
 const sentinelReadTool = tool({
   description: `Read raw poll outputs from a sentinel task. Useful for debugging when a condition isn't matching — inspect actual MCP responses.
 
@@ -323,11 +375,24 @@ Works whether the sentinel is running, completed, cancelled, or errored.`,
   },
 });
 
+/**
+ * Graceful shutdown: stop all sentinel timers, close all cached MCP
+ * connections, and clear in-memory state.
+ */
 async function shutdown() {
   cleanup();
   await disconnectAll();
 }
 
+/**
+ * Plugin entry point called by the opencode plugin host.
+ *
+ * Initializes the logger and notification channels, registers signal
+ * handlers for graceful shutdown, and returns the four sentinel tools.
+ *
+ * @param input - The plugin input from opencode (includes SDK client reference).
+ * @returns Tool hook definitions.
+ */
 export async function OpenCodeSentinelPlugin(input: PluginInput): Promise<Hooks> {
   _client = input.client;
   setNotifyFn(input.client);

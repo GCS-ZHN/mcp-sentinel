@@ -1,5 +1,31 @@
+/**
+ * Recursive condition evaluation engine for sentinel polling.
+ *
+ * Resolves a JSON path (dot notation, `[n]` array indices) from a poll
+ * result and reports whether the resolved value satisfies the condition.
+ * Compound conditions (`not`, `and`, `or`) are evaluated recursively.
+ *
+ * @module
+ */
+
 import type { SentinelCondition } from "./types.js";
 
+/**
+ * Walk a JSON value by dot-path, supporting array index notation.
+ *
+ * Array indices are normalized from `[n]` to `.n` before splitting on `.`.
+ * Returns `undefined` for any null or undefined intermediate node.
+ *
+ * @param obj - The JSON value to traverse (typically a poll result).
+ * @param path - Dot-path string (e.g. `"status"`, `"items[0].name"`).
+ * @returns The resolved value, or `undefined` if the path doesn't exist.
+ *
+ * @example
+ * ```ts
+ * resolvePath({ a: [{ b: 2 }] }, "a[0].b")  // → 2
+ * resolvePath({ x: null }, "x.y")             // → undefined
+ * ```
+ */
 function resolvePath(obj: unknown, path: string): unknown {
   const keys = path
     .replace(/\[(\d+)\]/g, ".$1")
@@ -13,6 +39,19 @@ function resolvePath(obj: unknown, path: string): unknown {
   return current;
 }
 
+/**
+ * Compare two values using one of the supported operators.
+ *
+ * Numeric operators (`gt`, `gte`, `lt`, `lte`) coerce both sides to
+ * `Number`. String operators (`contains`, `match`) require string values
+ * — mismatched types produce `false`.
+ *
+ * @param actual - The value resolved from the poll result.
+ * @param op - Comparison operator.
+ * @param expected - The expected value from the condition.
+ * @returns `true` if the comparison succeeds. Unknown operators always
+ *          produce `false`.
+ */
 function compare(actual: unknown, op: string, expected: unknown): boolean {
   switch (op) {
     case "eq":
@@ -42,6 +81,32 @@ function compare(actual: unknown, op: string, expected: unknown): boolean {
   }
 }
 
+/**
+ * Evaluate a {@link SentinelCondition} against poll result data.
+ *
+ * Recursively handles:
+ * - **Leaf** (`path` + `is` + `value`): resolves the path, then compares.
+ * - **`not`**: negates the nested condition.
+ * - **`and`**: short-circuits on first `false`.
+ * - **`or`**: short-circuits on first `true`.
+ *
+ * @param condition - The condition to evaluate.
+ * @param data - The JSON poll result (may be object, string, number, etc.).
+ * @returns `true` if the condition is satisfied for `data`.
+ *
+ * @example
+ * ```ts
+ * evaluateCondition(
+ *   { path: "status", is: "eq", value: "completed" },
+ *   { status: "completed" }
+ * )  // → true
+ *
+ * evaluateCondition(
+ *   { and: [{ path: "a", is: "gt", value: 0 }, { path: "b", is: "eq", value: 1 }] },
+ *   { a: 5, b: 1 }
+ * )  // → true
+ * ```
+ */
 export function evaluateCondition(condition: SentinelCondition, data: unknown): boolean {
   if ("path" in condition) {
     const actual = resolvePath(data, condition.path);

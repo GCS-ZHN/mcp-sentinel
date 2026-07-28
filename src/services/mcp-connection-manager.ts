@@ -1,30 +1,88 @@
+/**
+ * MCP client connection pool with lazy reconnection.
+ *
+ * ## Caching
+ * Maintains a singleton cache of `@modelcontextprotocol/sdk` `Client`
+ * instances keyed by server identity (`name@remote:url` or
+ * `name@local:cmd arg...`).
+ *
+ * ## Reconnection
+ * When {@link callTool} encounters a connection-level error — Streamable HTTP
+ * session expiry (404), server fault (5xx), or network errors (ECONNREFUSED,
+ * ECONNRESET, ETIMEDOUT, fetch failed) — the dead client is evicted from the
+ * cache, a fresh connection is established via {@link getOrCreateClient}, and
+ * the failed tool call is retried exactly once.
+ *
+ * Per the [MCP Streamable HTTP spec](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#session-management):
+ * > When a client receives HTTP 404 in response to a request containing an
+ * > `Mcp-Session-Id`, it **MUST** start a new session by sending a new
+ * > `InitializeRequest` without a session ID attached.
+ *
+ * The `@modelcontextprotocol/sdk`'s {@link StreamableHTTPClientTransport}
+ * throws a {@link StreamableHTTPError} on 404 but does **not** automatically
+ * re-initialize — that obligation is fulfilled by this module.
+ *
+ * @module
+ */
+
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { McpServerConfig, McpLocalConfig, McpRemoteConfig } from "./types.js";
 import pkg from "../../package.json" with { type: "json" };
 
+/** MCP client info derived from `package.json` at build time. */
 const CLIENT_INFO = {
   name: pkg.name ?? "opencode-mcp-sentinel",
   version: pkg.version ?? "0.0.0",
 };
 
+/**
+ * Cache entry for a connected MCP client.
+ *
+ * Stores the `client` instance, creation/usage timestamps, and enough
+ * metadata (`serverName` + `serverConfig`) to rebuild the connection
+ * when the session expires or the transport dies.
+ */
 interface ConnectionEntry {
+  /** The connected MCP client instance. */
   client: Client;
+  /** Unix-epoch timestamp when this connection was established. */
   connectedAt: number;
+  /** Unix-epoch timestamp of the most recent cache hit or usage. */
   lastUsedAt: number;
+  /** Server name from opencode config (for reconnection). */
   serverName: string;
+  /** Server config from opencode config (for reconnection). */
   serverConfig: McpServerConfig;
 }
 
+/**
+ * Connection cache keyed by `name@remote:url` or `name@local:cmd args...`.
+ * Each entry holds a connected {@link Client} instance.
+ */
 const connections = new Map<string, ConnectionEntry>();
 
+/**
+ * Generate a deterministic cache key from a server name and config.
+ *
+ * For remote servers: `"name@remote:http://host/mcp"`
+ * For local servers:  `"name@local:bun server.ts --port 0"`
+ */
 function serverKey(name: string, config: McpServerConfig): string {
   if (config.type === "remote") return `${name}@remote:${(config as McpRemoteConfig).url}`;
   const localConfig = config as McpLocalConfig;
   return `${name}@local:${localConfig.command.join(" ")}`;
 }
 
+/**
+ * Build the appropriate transport (stdio or Streamable HTTP) from the
+ * server configuration.
+ *
+ * @param config - The server configuration.
+ * @returns A transport ready to be connected via `client.connect()`.
+ * @throws {Error} If a local config is missing a `command`.
+ */
 async function createTransport(config: McpServerConfig) {
   if (config.type === "remote") {
     const remoteConfig = config as McpRemoteConfig;
@@ -47,6 +105,18 @@ async function createTransport(config: McpServerConfig) {
   return transport;
 }
 
+/**
+ * Retrieve (from cache) or lazily create an MCP client for the given
+ * `(name, config)` pair.
+ *
+ * The returned client may be cached. If the underlying connection later
+ * fails with a recoverable error, {@link callTool} will evict it from the
+ * cache and call this function again to rebuild.
+ *
+ * @param name - MCP server name (from opencode config).
+ * @param config - Parsed server configuration.
+ * @returns A connected MCP client instance.
+ */
 export async function getOrCreateClient(name: string, config: McpServerConfig): Promise<Client> {
   const key = serverKey(name, config);
   const existing = connections.get(key);
@@ -72,6 +142,27 @@ export async function getOrCreateClient(name: string, config: McpServerConfig): 
   return client;
 }
 
+/**
+ * Classify whether an error from the MCP SDK indicates a recoverable
+ * connection-level failure that warrants reconnection and retry.
+ *
+ * **Detected signals:**
+ * - HTTP `404` — MCP spec: session terminated, MUST re-initialize
+ * - HTTP `5xx` — server fault, may be transient
+ * - `"Session not found"` in message — proxy/gateway rewriting of 404
+ * - `"Not connected"` — stdio transport process died
+ * - `ECONNREFUSED`, `ECONNRESET`, `ETIMEDOUT` — network-level errors
+ * - `"fetch failed"` — Bun's generic network error
+ *
+ * **Not detected** (returns `false`):
+ * - `null` / `undefined`
+ * - HTTP `403`, `401` (auth errors — not recoverable)
+ * - Tool-level errors (e.g. `"Tool not found"`)
+ *
+ * @param err - The caught error (from SDK's `client.callTool`).
+ * @returns `true` if the error likely indicates a dead or unavailable
+ *          connection that can be fixed by reconnecting.
+ */
 export function isConnectionError(err: unknown): boolean {
   if (err == null) return false;
 
@@ -90,6 +181,14 @@ export function isConnectionError(err: unknown): boolean {
   return false;
 }
 
+/**
+ * Walk the connection cache and remove the entry whose `client` reference
+ * matches the given (dead) client.
+ *
+ * @param client - The dead client to evict.
+ * @returns The evicted entry's metadata (`serverName`, `serverConfig`),
+ *          or `undefined` if the client was not found in the cache.
+ */
 function evictCachedClient(client: Client): ConnectionEntry | undefined {
   for (const [key, entry] of connections) {
     if (entry.client === client) {
@@ -100,6 +199,32 @@ function evictCachedClient(client: Client): ConnectionEntry | undefined {
   return undefined;
 }
 
+/**
+ * Call an MCP tool through the given client.
+ *
+ * If the call throws a connection-level error (as classified by
+ * {@link isConnectionError}), the dead client is evicted from the cache,
+ * a fresh connection is established via {@link getOrCreateClient}, and the
+ * call is retried exactly once.
+ *
+ * Non-connection errors (auth failures, tool-not-found, etc.) are re-thrown
+ * immediately without retry.
+ *
+ * @param client - An MCP client (may be cached; may be dead).
+ * @param toolName - Name of the MCP tool to invoke.
+ * @param args - Arguments for the tool call.
+ * @returns The parsed tool result: a JSON object, a string (single text
+ *          part), or the raw content array (non-text parts).
+ * @throws {Error} If the call fails and cannot be recovered.
+ *
+ * @example
+ * ```ts
+ * const client = await getOrCreateClient("my-server", remoteConfig);
+ * // After server restart:
+ * const result = await callTool(client, "get_status", { job_id: "abc" });
+ * // transparently evicted dead client, reconnected, retried, succeeded
+ * ```
+ */
 export async function callTool(
   client: Client,
   toolName: string,
@@ -114,7 +239,7 @@ export async function callTool(
     try {
       await client.close();
     } catch {
-      // dead transport — close may also throw
+      // dead transport — close may also throw, ignore
     }
 
     if (!entry) throw err;
@@ -124,6 +249,18 @@ export async function callTool(
   }
 }
 
+/**
+ * Low-level tool invocation without retry logic.
+ *
+ * Calls `client.callTool`, checks for MCP-level errors (`result.isError`),
+ * and parses the text content into a JSON object when possible.
+ *
+ * @param client - A connected MCP client.
+ * @param toolName - Tool name.
+ * @param args - Tool arguments.
+ * @returns Parsed result (object, string, or content array).
+ * @throws {Error} If the MCP server returns an error (`result.isError`).
+ */
 async function invokeTool(
   client: Client,
   toolName: string,
@@ -160,6 +297,12 @@ async function invokeTool(
   }
 }
 
+/**
+ * Gracefully close all cached connections and clear the cache.
+ *
+ * Called during plugin shutdown (`SIGINT`/`SIGTERM`). Individual close
+ * errors are silently ignored — we're shutting down anyway.
+ */
 export async function disconnectAll(): Promise<void> {
   for (const [, entry] of connections) {
     try {
@@ -171,6 +314,9 @@ export async function disconnectAll(): Promise<void> {
   connections.clear();
 }
 
+/**
+ * @returns The number of currently cached connection entries.
+ */
 export function getConnectionCount(): number {
   return connections.size;
 }
