@@ -117,6 +117,16 @@ describe("config-reader", () => {
     expect(resolve("disabled_server")).toBeNull();
   });
 
+  it("makeServerResolver rejects prototype-chain keys", () => {
+    const config = parseOpencodeMcpConfig({
+      mcp: { test: { type: "remote", url: "http://localhost" } },
+    });
+    const resolve = makeServerResolver(config);
+    expect(resolve("__proto__")).toBeNull();
+    expect(resolve("constructor")).toBeNull();
+    expect(resolve("toString")).toBeNull();
+  });
+
   it("skips servers with unsupported types", () => {
     const config = parseOpencodeMcpConfig({
       mcp: {

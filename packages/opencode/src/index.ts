@@ -15,12 +15,25 @@ import { tool } from "@opencode-ai/plugin";
 import type { PluginInput, Hooks } from "@opencode-ai/plugin";
 import type { OpencodeClient } from "@opencode-ai/sdk";
 import { parseOpencodeMcpConfig } from "./config.js";
-import { setNotifier, cleanup, makeServerResolver } from "@gcszhn/mcp-sentinel-core";
-import type { SentinelEvent, SentinelNotifier } from "@gcszhn/mcp-sentinel-core";
-import { disconnectAll } from "@gcszhn/mcp-sentinel-core";
-import { setLogSink, logInfo } from "@gcszhn/mcp-sentinel-core";
-import { handlePoll, handleStatus, handleAttach, handleRead } from "@gcszhn/mcp-sentinel-core";
-import type { SentinelCondition, SentinelTask } from "@gcszhn/mcp-sentinel-core";
+import {
+  cleanup,
+  disconnectAll,
+  handleAttach,
+  handlePoll,
+  handleRead,
+  handleStatus,
+  logInfo,
+  makeConnectionInvoker,
+  makeServerResolver,
+  setLogSink,
+  setNotifier,
+} from "@gcszhn/mcp-sentinel-core";
+import type {
+  SentinelCondition,
+  SentinelEvent,
+  SentinelNotifier,
+  SentinelTask,
+} from "@gcszhn/mcp-sentinel-core";
 
 /** Service identifier used in the opencode log API. */
 const SERVICE_NAME = "mcp-sentinel";
@@ -33,10 +46,10 @@ let _client: OpencodeClient | null = null;
  * Lives in the harness, not the core, because the notification message format
  * is host-specific — other hosts may render completions differently.
  */
-function buildNotificationText(task: SentinelTask, event: SentinelEvent): string {
+export function buildNotificationText(task: SentinelTask, event: SentinelEvent): string {
   switch (event) {
     case "completed":
-      return `## Sentinel Complete\n\n**Server:** ${task.request.server}\n**Tool:** ${task.request.tool}\n**Poll count:** ${task.pollCount}\n**Duration:** ${((task.resolvedAt! - task.createdAt) / 1000).toFixed(1)}s\n**Result:**\n\`\`\`json\n${JSON.stringify(task.lastResult, null, 2)}\n\`\`\``;
+      return `## Sentinel Complete\n\n**Server:** ${task.request.server}\n**Tool:** ${task.request.tool}\n**Poll count:** ${task.pollCount}\n**Duration:** ${task.resolvedAt != null ? ((task.resolvedAt - task.createdAt) / 1000).toFixed(1) : "—"}s\n**Result:**\n\`\`\`json\n${JSON.stringify(task.lastResult, null, 2)}\n\`\`\``;
     case "failed":
       return `## Sentinel Failed\n\n**Server:** ${task.request.server}\n**Tool:** ${task.request.tool}\n**Poll count:** ${task.pollCount}\n**Error:** ${task.error}`;
     case "timeout":
@@ -139,9 +152,17 @@ You will receive a prompt notification with the result when done. Use sentinel_s
       return "Error: Invalid JSON for until parameter. Must be a valid JSON object.";
     }
 
+    if (!args.server.trim() || !args.tool.trim()) {
+      return "Error: server and tool must be non-empty strings.";
+    }
+
     const configResult = await _client.config.get();
     const rawConfig = configResult.data ?? {};
     const resolveServer = makeServerResolver(parseOpencodeMcpConfig(rawConfig));
+    if (!resolveServer(args.server)) {
+      return `Error: Unknown MCP server: ${args.server}`;
+    }
+    const invoke = makeConnectionInvoker(resolveServer);
 
     return handlePoll(
       {
@@ -153,7 +174,7 @@ You will receive a prompt notification with the result when done. Use sentinel_s
         until,
         sessionID: ctx.sessionID,
       },
-      resolveServer
+      invoke
     );
   },
 });

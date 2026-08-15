@@ -41,7 +41,9 @@ export function parseOpencodeMcpConfig(raw: unknown): McpConfig {
   }
 
   const config = raw as Record<string, unknown>;
-  const servers: Record<string, McpServerConfig> = {};
+  // Null-prototype map so a server literally named `__proto__` (an own key from
+  // JSON.parse of a config file) cannot mutate the object's prototype.
+  const servers: Record<string, McpServerConfig> = Object.create(null);
 
   if (config.mcp && typeof config.mcp === "object") {
     for (const [name, serverConfig] of Object.entries(config.mcp)) {
