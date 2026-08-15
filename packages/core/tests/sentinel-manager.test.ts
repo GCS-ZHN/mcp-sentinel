@@ -8,6 +8,14 @@ import {
   setNotifier,
 } from "../src/engine.js";
 import { makeServerResolver } from "../src/resolver.js";
+import { makeConnectionInvoker } from "../src/connection-pool.js";
+import { handleRead } from "../src/tools.js";
+import type { McpConfig } from "../src/types.js";
+
+/** Build a connection-pool-mode invoker for tests that register MCP config. */
+function invoker(config: McpConfig) {
+  return makeConnectionInvoker(makeServerResolver(config));
+}
 
 function withEnv(key: string, value: string | undefined): void {
   if (value === undefined) {
@@ -39,20 +47,22 @@ describe("sentinel-manager", () => {
     setNotifier(null);
   });
 
-  it("throws for unknown server", () => {
+  it("records error for unknown server", async () => {
     const config = { servers: {} };
-    expect(
-      startSentinel(
-        {
-          server: "nonexistent",
-          tool: "test",
-          args: {},
-          until: { path: "a", is: "eq", value: 1 },
-          sessionID: "s1",
-        },
-        makeServerResolver(config)
-      )
-    ).rejects.toThrow("Unknown MCP server");
+    const id = await startSentinel(
+      {
+        server: "nonexistent",
+        tool: "test",
+        args: {},
+        until: { path: "a", is: "eq", value: 1 },
+        sessionID: "s1",
+      },
+      invoker(config)
+    );
+    await waitForStatus(id, "error");
+    const task = getSentinelTask(id);
+    expect(task?.status).toBe("error");
+    expect(task?.error).toContain("Unknown MCP server");
   });
 
   it("creates a task with valid config", () => {
@@ -68,7 +78,7 @@ describe("sentinel-manager", () => {
           until: { path: "x", is: "eq", value: 1 },
           sessionID: "s1",
         },
-        makeServerResolver(config)
+        invoker(config)
       )
     ).resolves.toBeDefined();
   });
@@ -85,7 +95,7 @@ describe("sentinel-manager", () => {
         until: { path: "x", is: "eq", value: 1 },
         sessionID: "s1",
       },
-      makeServerResolver(config)
+      invoker(config)
     );
     const p2 = startSentinel(
       {
@@ -95,7 +105,7 @@ describe("sentinel-manager", () => {
         until: { path: "x", is: "eq", value: 1 },
         sessionID: "s1",
       },
-      makeServerResolver(config)
+      invoker(config)
     );
     expect(p1).resolves.not.toEqual(p2);
   });
@@ -112,7 +122,7 @@ describe("sentinel-manager", () => {
         until: { path: "x", is: "eq", value: 1 },
         sessionID: "s1",
       },
-      makeServerResolver(config)
+      invoker(config)
     );
     const tasks = getActiveSentinels();
     expect(tasks.length).toBeGreaterThanOrEqual(1);
@@ -131,7 +141,7 @@ describe("sentinel-manager", () => {
         until: { path: "ok", is: "eq", value: true },
         sessionID: "s1",
       },
-      makeServerResolver(config)
+      invoker(config)
     );
     const task = getSentinelTask(id);
     expect(task).toBeDefined();
@@ -153,7 +163,7 @@ describe("sentinel-manager", () => {
         until: { path: "x", is: "eq", value: 1 },
         sessionID: "s1",
       },
-      makeServerResolver(config)
+      invoker(config)
     );
     const cancelled = cancelSentinel(id);
     expect(cancelled).toBe(true);
@@ -184,7 +194,7 @@ describe("sentinel-manager", () => {
         until: { path: "x", is: "eq", value: 1 },
         sessionID: "s1",
       },
-      makeServerResolver(config)
+      invoker(config)
     );
     const task = getSentinelTask(id);
     expect(task!.request.interval).toBe(2000);
@@ -203,7 +213,7 @@ describe("sentinel-manager", () => {
         until: { path: "x", is: "eq", value: 1 },
         sessionID: "s1",
       },
-      makeServerResolver(config)
+      invoker(config)
     );
     expect(getActiveSentinels().length).toBeGreaterThan(0);
     cleanup();
@@ -222,7 +232,7 @@ describe("sentinel-manager", () => {
         until: { path: "x", is: "eq", value: 1 },
         sessionID: "s1",
       },
-      makeServerResolver(config)
+      invoker(config)
     );
     cancelSentinel(id);
     const task = getSentinelTask(id);
@@ -242,7 +252,7 @@ describe("sentinel-manager", () => {
         until: { path: "x", is: "eq", value: 1 },
         sessionID: "s1",
       },
-      makeServerResolver(config)
+      invoker(config)
     );
     await waitForStatus(id, "error");
     const task = getSentinelTask(id);
@@ -269,7 +279,7 @@ describe("sentinel-manager", () => {
         until: { path: "x", is: "eq", value: 1 },
         sessionID: "s1",
       },
-      makeServerResolver(config)
+      invoker(config)
     );
     await waitForStatus(id, "error");
     expect(events.some((e) => e.id === id && e.event === "failed")).toBe(true);
@@ -289,7 +299,7 @@ describe("sentinel-manager", () => {
         until: { path: "x", is: "eq", value: 1 },
         sessionID: "s1",
       },
-      makeServerResolver(config)
+      invoker(config)
     );
     await waitForStatus(id, "error");
     // wait for TTL to fire
@@ -313,7 +323,7 @@ describe("sentinel-manager", () => {
         until: { path: "x", is: "eq", value: 1 },
         sessionID: "s1",
       },
-      makeServerResolver(config)
+      invoker(config)
     );
     cancelSentinel(id);
     // wait for TTL
@@ -335,7 +345,7 @@ describe("sentinel-manager", () => {
         until: { path: "x", is: "eq", value: 1 },
         sessionID: "s1",
       },
-      makeServerResolver(config)
+      invoker(config)
     );
     await waitForStatus(id, "error");
     // should still be there after a delay
@@ -349,4 +359,84 @@ describe("sentinel-manager", () => {
     cleanup();
     withEnv("SENTINEL_TASK_TTL_MS", undefined);
   });
+
+  it("supports external invoker mode (no MCP config registered)", async () => {
+    const calls: Array<{ server: string; tool: string; args: unknown }> = [];
+    let count = 0;
+    const externalInvoke = async (server: string, tool: string, args: Record<string, unknown>) => {
+      calls.push({ server, tool, args });
+      count++;
+      return count >= 3 ? { status: "completed" } : { status: "running" };
+    };
+
+    const id = await startSentinel(
+      {
+        server: "whatever",
+        tool: "get_status",
+        args: { job_id: "x" },
+        interval: 1000,
+        until: { path: "status", is: "eq", value: "completed" },
+        sessionID: "s1",
+      },
+      externalInvoke
+    );
+
+    await waitForStatus(id, "completed");
+    const task = getSentinelTask(id);
+    expect(task?.status).toBe("completed");
+    expect(task?.pollCount).toBe(3);
+    expect(calls).toHaveLength(3);
+    expect(calls[0]).toEqual({ server: "whatever", tool: "get_status", args: { job_id: "x" } });
+  });
+
+  it("handleRead paginates poll outputs by offset/limit", async () => {
+    let count = 0;
+    const externalInvoke = async () => {
+      count++;
+      return count >= 4 ? { status: "completed" } : { status: "running", n: count };
+    };
+
+    const id = await startSentinel(
+      {
+        server: "whatever",
+        tool: "get_status",
+        args: {},
+        interval: 1000,
+        until: { path: "status", is: "eq", value: "completed" },
+        sessionID: "s1",
+      },
+      externalInvoke
+    );
+    await waitForStatus(id, "completed");
+
+    const first = handleRead(id, 0, 2);
+    expect(first).toContain("Poll #1");
+    expect(first).toContain("Poll #2");
+    expect(first).not.toContain("Poll #3");
+
+    const last = handleRead(id, undefined, 2);
+    expect(last).toContain("Poll #3");
+    expect(last).toContain("Poll #4");
+    expect(last).not.toContain("Poll #1");
+  });
+
+  it("times out when the deadline elapses before the condition is met", async () => {
+    const externalInvoke = async () => ({ status: "running" });
+    const id = await startSentinel(
+      {
+        server: "s",
+        tool: "t",
+        args: {},
+        interval: 1000,
+        timeout: 5000,
+        until: { path: "status", is: "eq", value: "completed" },
+        sessionID: "s1",
+      },
+      externalInvoke
+    );
+    await waitForStatus(id, "timeout");
+    const task = getSentinelTask(id);
+    expect(task?.status).toBe("timeout");
+    expect(task?.pollCount).toBeGreaterThan(0);
+  }, 15000);
 });

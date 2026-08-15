@@ -38,10 +38,39 @@ describe("condition-evaluator", () => {
       expect(evaluateCondition({ path: "items[2].name", is: "eq", value: "c" }, data)).toBe(true);
     });
 
-    it("returns false for missing paths", () => {
+    it("throws for a missing key", () => {
       const data = { foo: "bar" };
-      expect(evaluateCondition({ path: "baz", is: "eq", value: "bar" }, data)).toBe(false);
-      expect(evaluateCondition({ path: "a.b.c", is: "eq", value: 1 }, data)).toBe(false);
+      expect(() => evaluateCondition({ path: "baz", is: "eq", value: "bar" }, data)).toThrow(
+        /key "baz" does not exist/
+      );
+    });
+
+    it("throws for a missing nested key", () => {
+      const data = { a: {} };
+      expect(() => evaluateCondition({ path: "a.b.c", is: "eq", value: 1 }, data)).toThrow(
+        /key "b" does not exist/
+      );
+    });
+
+    it("throws for an out-of-range array index", () => {
+      const data = { items: [1, 2] };
+      expect(() => evaluateCondition({ path: "items[5]", is: "eq", value: 1 }, data)).toThrow(
+        /out of range/
+      );
+    });
+
+    it("throws when reading a property off null", () => {
+      const data = { a: null };
+      expect(() => evaluateCondition({ path: "a.b", is: "eq", value: 1 }, data)).toThrow(
+        /cannot read/
+      );
+    });
+
+    it("throws when reading a property off a primitive", () => {
+      const data = { a: "text" };
+      expect(() => evaluateCondition({ path: "a.b", is: "eq", value: 1 }, data)).toThrow(
+        /cannot read/
+      );
     });
   });
 
@@ -172,6 +201,82 @@ describe("condition-evaluator", () => {
     });
   });
 
+  describe("no-path leaf (non-JSON payloads)", () => {
+    it("compares the raw string result directly", () => {
+      expect(evaluateCondition({ is: "eq", value: "completed" }, "completed")).toBe(true);
+      expect(evaluateCondition({ is: "eq", value: "completed" }, "running")).toBe(false);
+    });
+
+    it("empty path behaves like no path", () => {
+      expect(evaluateCondition({ path: "", is: "eq", value: 42 }, 42)).toBe(true);
+      expect(evaluateCondition({ path: "", is: "eq", value: 42 }, 7)).toBe(false);
+    });
+
+    it("compares non-JSON numbers and booleans", () => {
+      expect(evaluateCondition({ is: "gte", value: 100 }, 150)).toBe(true);
+      expect(evaluateCondition({ is: "eq", value: true }, true)).toBe(true);
+    });
+
+    it("supports contains/match against a raw string", () => {
+      expect(evaluateCondition({ is: "contains", value: "done" }, "build done")).toBe(true);
+      expect(evaluateCondition({ is: "match", value: "^ok" }, "ok: built")).toBe(true);
+    });
+
+    it("works inside logical composition", () => {
+      const condition: SentinelCondition = {
+        or: [
+          { is: "eq", value: "completed" },
+          { is: "eq", value: "failed" },
+        ],
+      };
+      expect(evaluateCondition(condition, "failed")).toBe(true);
+      expect(evaluateCondition(condition, "running")).toBe(false);
+    });
+  });
+
+  describe("non-leaf rejection", () => {
+    it("throws when a path resolves to an object", () => {
+      const data = { status: { code: 0 } };
+      expect(() => evaluateCondition({ path: "status", is: "eq", value: 0 }, data)).toThrow(
+        /only leaf values/
+      );
+    });
+
+    it("throws when a path resolves to an array", () => {
+      const data = { tasks: [1, 2, 3] };
+      expect(() => evaluateCondition({ path: "tasks", is: "eq", value: 1 }, data)).toThrow(
+        /only leaf values/
+      );
+    });
+
+    it("throws when no path and the raw result is an object", () => {
+      expect(() => evaluateCondition({ is: "eq", value: { a: 1 } }, { a: 1 })).toThrow(
+        /only leaf values/
+      );
+    });
+
+    it("allows null as a leaf", () => {
+      expect(evaluateCondition({ path: "x", is: "eq", value: null }, { x: null })).toBe(true);
+    });
+
+    it("allows number and boolean leaves", () => {
+      expect(evaluateCondition({ path: "n", is: "gte", value: 1 }, { n: 2 })).toBe(true);
+      expect(evaluateCondition({ path: "b", is: "eq", value: true }, { b: true })).toBe(true);
+    });
+
+    it("throws inside a compound condition", () => {
+      const condition: SentinelCondition = {
+        and: [
+          { path: "status", is: "eq", value: "ok" },
+          { path: "nested", is: "eq", value: 1 },
+        ],
+      };
+      expect(() => evaluateCondition(condition, { status: "ok", nested: { a: 1 } })).toThrow(
+        /only leaf values/
+      );
+    });
+  });
+
   describe("real-world scenarios", () => {
     it("CI pipeline complete with success", () => {
       const pipelineResult = {
@@ -242,6 +347,20 @@ describe("condition-evaluator", () => {
       expect(evaluateCondition({ path: "log", is: "contains", value: "successful" }, data)).toBe(
         true
       );
+    });
+  });
+
+  describe("malformed condition", () => {
+    it("throws for an empty condition object", () => {
+      expect(() => evaluateCondition({} as SentinelCondition, { a: 1 })).toThrow(
+        /Invalid condition/
+      );
+    });
+
+    it("throws for an unknown comparison operator", () => {
+      expect(() =>
+        evaluateCondition({ path: "x", is: "eqq" as never, value: 1 }, { x: 1 })
+      ).toThrow(/Unknown comparison operator/);
     });
   });
 });

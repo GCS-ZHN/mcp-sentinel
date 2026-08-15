@@ -6,12 +6,44 @@ import {
   disconnectAll,
   isConnectionError,
   getConnectionCount,
+  parseMcpContent,
 } from "../src/connection-pool.js";
 import type { McpRemoteConfig } from "../src/types.js";
 
 const HTTP_PORT = 19879;
 const HTTP_URL = `http://localhost:${HTTP_PORT}/mcp`;
 const config: McpRemoteConfig = { type: "remote", url: HTTP_URL };
+
+describe("parseMcpContent", () => {
+  it("parses a single JSON text block", () => {
+    expect(parseMcpContent([{ type: "text", text: '{"status":"completed"}' }])).toEqual({
+      status: "completed",
+    });
+  });
+
+  it("returns a lone non-JSON text block verbatim", () => {
+    expect(parseMcpContent([{ type: "text", text: "completed" }])).toBe("completed");
+  });
+
+  it("joins multiple text blocks then parses JSON", () => {
+    expect(
+      parseMcpContent([
+        { type: "text", text: '{"a":' },
+        { type: "text", text: "1}" },
+      ])
+    ).toEqual({ a: 1 });
+  });
+
+  it("returns the original array when there are no text blocks", () => {
+    const content = [{ type: "image", data: "x" }];
+    expect(parseMcpContent(content)).toBe(content);
+  });
+
+  it("passes through non-array values", () => {
+    expect(parseMcpContent("already-parsed")).toBe("already-parsed");
+    expect(parseMcpContent(42)).toBe(42);
+  });
+});
 
 // Global server lifecycle — all test suites share one mock HTTP server
 beforeAll(async () => {
