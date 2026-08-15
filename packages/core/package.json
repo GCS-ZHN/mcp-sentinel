@@ -33,7 +33,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/GCS-ZHN/opencode-mcp-sentinel.git"
+    "url": "git+https://github.com/GCS-ZHN/mcp-sentinel.git"
   },
   "files": [
     "dist",
