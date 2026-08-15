@@ -28,7 +28,7 @@ jobs:
       - run: bun run build
       - run: bun test
 
-      - name: Verify package versions match tag
+      - name: Verify versions match tag (lockstep)
         run: |
           TAG="${{ github.ref_name }}"
           for pkg in packages/core packages/opencode; do
@@ -38,6 +38,12 @@ jobs:
               exit 1
             fi
           done
+          CORE_VER="$(node -e "console.log(require('./packages/core/package.json').version)")"
+          PLUGIN_CORE_DEP="$(node -e "console.log(require('./packages/opencode/package.json').dependencies['mcp-sentinel-core'])")"
+          if [ "$PLUGIN_CORE_DEP" != "$CORE_VER" ]; then
+            echo "packages/opencode depends on mcp-sentinel-core@$PLUGIN_CORE_DEP, expected $CORE_VER"
+            exit 1
+          fi
 
       - name: Publish mcp-sentinel-core
         run: npm publish --provenance --access public

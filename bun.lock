@@ -14,7 +14,7 @@
     },
     "packages/core": {
       "name": "mcp-sentinel-core",
-      "version": "0.4.1",
+      "version": "1.0.0",
       "dependencies": {
         "@modelcontextprotocol/sdk": "^1.25.0",
       },
@@ -27,7 +27,7 @@
     },
     "packages/opencode": {
       "name": "mcp-sentinel-opencode-plugin",
-      "version": "0.4.1",
+      "version": "1.0.0",
       "dependencies": {
         "@opencode-ai/plugin": "1.3.13",
         "@opencode-ai/sdk": "1.3.13",
