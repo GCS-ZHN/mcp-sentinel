@@ -1,0 +1,79 @@
+[
+  {
+    "id": "opencode-poll-attach-completes",
+    "harness_name": "opencode",
+    "headless_test_command": "opencode run {prompt} --dir . --print-logs --model opencode/deepseek-v4-flash-free",
+    "input_prompt": "Use mcp_sentinel_poll against mock-ci get_job_status (args={\"job_id\":\"e2e\"}, until={\"path\":\"status\",\"is\":\"eq\",\"value\":\"completed\"}, interval=1000). Then mcp_sentinel_attach on the returned id and report the final status.",
+    "expect_result": "The sentinel polls get_job_status until status becomes completed and the agent reports the job as completed."
+  },
+  {
+    "id": "opencode-unknown-server",
+    "harness_name": "opencode",
+    "headless_test_command": "opencode run {prompt} --dir . --print-logs --model opencode/deepseek-v4-flash-free",
+    "input_prompt": "Use mcp_sentinel_poll server=nonexistent tool=get_job_status until={\"path\":\"x\",\"is\":\"eq\",\"value\":1} and report the error.",
+    "expect_result": "The tool returns an error stating the MCP server is unknown: \"Unknown MCP server: nonexistent\"."
+  },
+  {
+    "id": "opencode-empty-server",
+    "harness_name": "opencode",
+    "headless_test_command": "opencode run {prompt} --dir . --print-logs --model opencode/deepseek-v4-flash-free",
+    "input_prompt": "Use mcp_sentinel_poll server='' tool=get_job_status until={\"path\":\"x\",\"is\":\"eq\",\"value\":1} and report the error.",
+    "expect_result": "The tool returns an error stating server and tool must be non-empty strings."
+  },
+  {
+    "id": "opencode-invalid-until",
+    "harness_name": "opencode",
+    "headless_test_command": "opencode run {prompt} --dir . --print-logs --model opencode/deepseek-v4-flash-free",
+    "input_prompt": "Use mcp_sentinel_poll server=mock-ci tool=get_job_status until=not-an-object and report the error.",
+    "expect_result": "The tool returns an error stating the until parameter is invalid JSON (not a JSON object)."
+  },
+  {
+    "id": "opencode-invalid-args",
+    "harness_name": "opencode",
+    "headless_test_command": "opencode run {prompt} --dir . --print-logs --model opencode/deepseek-v4-flash-free",
+    "input_prompt": "Use mcp_sentinel_poll server=mock-ci tool=get_job_status args=not-json until={\"path\":\"x\",\"is\":\"eq\",\"value\":1} and report the error.",
+    "expect_result": "The tool returns an error stating the args parameter is invalid JSON."
+  },
+  {
+    "id": "opencode-timeout",
+    "harness_name": "opencode",
+    "headless_test_command": "opencode run {prompt} --dir . --print-logs --model opencode/deepseek-v4-flash-free",
+    "input_prompt": "Start exactly one sentinel with mcp_sentinel_poll against mock-ci get_job_status (args={\"job_id\":\"e2e-timeout\"}, until={\"path\":\"status\",\"is\":\"eq\",\"value\":\"completed\"}, interval=1000, timeout=5000). Do not start a second sentinel. The job needs ~17s, so 5s times out. Use mcp_sentinel_status and report that sentinel's final status.",
+    "expect_result": "The sentinel's final status is timeout (the 5s deadline elapses before the ~17s job completes), not completed."
+  },
+  {
+    "id": "opencode-nonleaf-condition",
+    "harness_name": "opencode",
+    "headless_test_command": "opencode run {prompt} --dir . --print-logs --model opencode/deepseek-v4-flash-free",
+    "input_prompt": "Use mcp_sentinel_poll against mock-ci get_job_status (args={\"job_id\":\"e2e\"}, until={\"path\":\"steps\",\"is\":\"eq\",\"value\":0}, interval=1000, timeout=10000). steps is an array (non-leaf), so the sentinel should error. Use mcp_sentinel_status and report the sentinel's status and error.",
+    "expect_result": "The sentinel errors because the condition resolved to a non-leaf value (array), surfacing an error rather than silently never matching."
+  },
+  {
+    "id": "opencode-codegraph-real-mcp",
+    "harness_name": "opencode",
+    "headless_test_command": "opencode run {prompt} --dir . --print-logs --model opencode/deepseek-v4-flash-free",
+    "input_prompt": "Use mcp_sentinel_poll against codegraph codegraph_explore (args={\"query\":\"evaluateCondition\"}, until={\"is\":\"contains\",\"value\":\"evaluateCondition\"}, interval=1000, timeout=20000). Then mcp_sentinel_attach and report whether the sentinel completed and returned evaluateCondition exploration results from the real codegraph stdio MCP.",
+    "expect_result": "The sentinel completes by calling the real codegraph stdio MCP tool codegraph_explore, returning exploration results that contain the evaluateCondition symbol."
+  },
+  {
+    "id": "opencode-missing-key",
+    "harness_name": "opencode",
+    "headless_test_command": "opencode run {prompt} --dir . --print-logs --model opencode/deepseek-v4-flash-free",
+    "input_prompt": "Use mcp_sentinel_poll against mock-ci get_job_status (args={\"job_id\":\"e2e\"}, until={\"path\":\"statuss\",\"is\":\"eq\",\"value\":\"completed\"}, interval=1000, timeout=10000). statuss is a typo. Use mcp_sentinel_status and report the sentinel's status and error.",
+    "expect_result": "The sentinel errors because the condition path references a key that does not exist (a field-name typo)."
+  },
+  {
+    "id": "opencode-status-list-cancel",
+    "harness_name": "opencode",
+    "headless_test_command": "opencode run {prompt} --dir . --print-logs --model opencode/deepseek-v4-flash-free",
+    "input_prompt": "Start a sentinel polling mock-ci get_job_status (until={\"path\":\"status\",\"is\":\"eq\",\"value\":\"completed\"}, interval=5000). Then mcp_sentinel_status action=list, then mcp_sentinel_status action=cancel on the id, then mcp_sentinel_status action=status to confirm the final status.",
+    "expect_result": "mcp_sentinel_status list shows the task, cancel succeeds, and the final status is cancelled."
+  },
+  {
+    "id": "opencode-read-pagination",
+    "harness_name": "opencode",
+    "headless_test_command": "opencode run {prompt} --dir . --print-logs --model opencode/deepseek-v4-flash-free",
+    "input_prompt": "Start mcp_sentinel_poll against mock-ci get_job_status (interval=5000, until={\"path\":\"status\",\"is\":\"eq\",\"value\":\"completed\"}, no timeout). Immediately after starting, call mcp_sentinel_read offset=0 limit=3 and quote the poll outputs it returns (poll number plus JSON). Finally cancel the sentinel with mcp_sentinel_status action=cancel.",
+    "expect_result": "mcp_sentinel_read returns the produced poll output(s) (at least poll #1 with its JSON), proving read pagination works."
+  }
+]

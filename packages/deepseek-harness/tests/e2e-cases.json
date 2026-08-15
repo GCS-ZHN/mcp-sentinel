@@ -1,0 +1,79 @@
+[
+  {
+    "id": "dsh-poll-attach-completes",
+    "harness_name": "deepseek-harness",
+    "headless_test_command": "npx @deepseek-ai/dsh --profile headless {prompt}",
+    "input_prompt": "调用 mcp_sentinel_poll 轮询 mock-ci 的 get_job_status（args={\"job_id\":\"e2e\"}, until={\"path\":\"status\",\"is\":\"eq\",\"value\":\"completed\"}, interval=1000），然后用 mcp_sentinel_attach 等待它完成，最后报告 job 的 status 和 progress。",
+    "expect_result": "最终报告 job 状态为 completed，进度为 100%，8 个阶段全部成功完成。"
+  },
+  {
+    "id": "dsh-nonleaf-condition-errors",
+    "harness_name": "deepseek-harness",
+    "headless_test_command": "npx @deepseek-ai/dsh --profile headless {prompt}",
+    "input_prompt": "调用 mcp_sentinel_poll 轮询 mock-ci 的 get_job_status（args={\"job_id\":\"e2e\"}, until={\"path\":\"steps\",\"is\":\"eq\",\"value\":0}, interval=1000, timeout=10000）。steps 是数组而非叶子，所以 sentinel 应当报错。用 mcp_sentinel_status 查询该 sentinel 并报告它的 status 与错误信息。",
+    "expect_result": "sentinel 的 status 变为 error，且错误信息指出条件解析到了非叶子值（数组/对象）而非可比较的叶子值。"
+  },
+  {
+    "id": "dsh-unknown-tool-errors",
+    "harness_name": "deepseek-harness",
+    "headless_test_command": "npx @deepseek-ai/dsh --profile headless {prompt}",
+    "input_prompt": "调用 mcp_sentinel_poll 轮询 mock-ci 的 nonexistent_tool（args={}, until={\"path\":\"x\",\"is\":\"eq\",\"value\":1}, interval=1000, timeout=10000）。用 mcp_sentinel_status 查询该 sentinel 并报告它的 status 与错误信息。",
+    "expect_result": "sentinel 的 status 变为 error，且错误信息指出该工具不存在（例如 UNKNOWN_TOOL 或 tool not found）。"
+  },
+  {
+    "id": "dsh-timeout",
+    "harness_name": "deepseek-harness",
+    "headless_test_command": "npx @deepseek-ai/dsh --profile headless {prompt}",
+    "input_prompt": "用 mcp_sentinel_poll 启动一个且仅一个 sentinel，轮询 mock-ci 的 get_job_status（args={\"job_id\":\"e2e-timeout\"}, until={\"path\":\"status\",\"is\":\"eq\",\"value\":\"completed\"}, interval=1000, timeout=5000）。不要启动第二个 sentinel。该任务约需 17 秒才完成，5 秒会超时。用 mcp_sentinel_status 查询这个 sentinel 的最终 status 并报告。",
+    "expect_result": "sentinel 的最终 status 为 timeout（5 秒超时早于约 17 秒的任务完成），而不是 completed。"
+  },
+  {
+    "id": "dsh-invalid-args",
+    "harness_name": "deepseek-harness",
+    "headless_test_command": "npx @deepseek-ai/dsh --profile headless {prompt}",
+    "input_prompt": "调用 mcp_sentinel_poll，参数 server='mock-ci'、tool='get_job_status'、args='not-json'、until='{\"path\":\"x\",\"is\":\"eq\",\"value\":1}'，报告返回的错误信息。",
+    "expect_result": "工具返回错误，指出 args 参数是无效 JSON。"
+  },
+  {
+    "id": "dsh-invalid-until",
+    "harness_name": "deepseek-harness",
+    "headless_test_command": "npx @deepseek-ai/dsh --profile headless {prompt}",
+    "input_prompt": "调用 mcp_sentinel_poll，参数 server='mock-ci'、tool='get_job_status'、until='not-an-object'，报告返回的错误信息。",
+    "expect_result": "工具返回错误，指出 until 参数是无效 JSON（不是 JSON 对象）。"
+  },
+  {
+    "id": "dsh-codegraph-real-mcp",
+    "harness_name": "deepseek-harness",
+    "headless_test_command": "npx @deepseek-ai/dsh --profile headless {prompt}",
+    "input_prompt": "调用 mcp_sentinel_poll 轮询 codegraph 的 codegraph_explore 工具（args={\"query\":\"evaluateCondition\"}, until={\"is\":\"contains\",\"value\":\"evaluateCondition\"}, interval=1000, timeout=20000），然后用 mcp_sentinel_attach 等待完成，报告 sentinel 是否成功调用真实的 codegraph stdio MCP 并返回了 evaluateCondition 的探索结果。",
+    "expect_result": "sentinel 成功调用真实的 codegraph stdio MCP 工具 codegraph_explore，返回了包含 evaluateCondition 符号的探索结果，并正常完成。"
+  },
+  {
+    "id": "dsh-missing-key-errors",
+    "harness_name": "deepseek-harness",
+    "headless_test_command": "npx @deepseek-ai/dsh --profile headless {prompt}",
+    "input_prompt": "调用 mcp_sentinel_poll 轮询 mock-ci 的 get_job_status（args={\"job_id\":\"e2e\"}, until={\"path\":\"statuss\",\"is\":\"eq\",\"value\":\"completed\"}, interval=1000, timeout=10000）。statuss 是不存在的字段（拼写错误）。用 mcp_sentinel_status 查询该 sentinel 并报告它的 status 与错误信息。",
+    "expect_result": "sentinel 的 status 变为 error，且错误信息指出 path 引用的 key 不存在（字段拼写错误）。"
+  },
+  {
+    "id": "dsh-empty-server",
+    "harness_name": "deepseek-harness",
+    "headless_test_command": "npx @deepseek-ai/dsh --profile headless {prompt}",
+    "input_prompt": "调用 mcp_sentinel_poll，参数 server=''、tool='get_job_status'、until='{\"path\":\"x\",\"is\":\"eq\",\"value\":1}'，报告返回的错误信息。",
+    "expect_result": "工具返回错误，指出 server 和 tool 必须是非空字符串。"
+  },
+  {
+    "id": "dsh-status-list-cancel",
+    "harness_name": "deepseek-harness",
+    "headless_test_command": "npx @deepseek-ai/dsh --profile headless {prompt}",
+    "input_prompt": "用 mcp_sentinel_poll 启动一个轮询 mock-ci get_job_status 的 sentinel（until={\"path\":\"status\",\"is\":\"eq\",\"value\":\"completed\"}, interval=5000 以留出时间）。然后用 mcp_sentinel_status action=list 列出任务，再用 mcp_sentinel_status action=cancel 取消它，最后用 mcp_sentinel_status action=status 确认其最终 status。",
+    "expect_result": "mcp_sentinel_status 的 list 列出了该任务，cancel 成功，最终 status 为 cancelled。"
+  },
+  {
+    "id": "dsh-read-pagination",
+    "harness_name": "deepseek-harness",
+    "headless_test_command": "npx @deepseek-ai/dsh --profile headless {prompt}",
+    "input_prompt": "用 mcp_sentinel_poll 启动轮询 mock-ci get_job_status（interval=5000, until={\"path\":\"status\",\"is\":\"eq\",\"value\":\"completed\"}, 不设 timeout）。启动后立即用 mcp_sentinel_read offset=0 limit=3 读取已产生的 poll 输出，把 read 返回的内容（poll 编号及其 JSON）摘录到回复中。最后用 mcp_sentinel_status action=cancel 取消该 sentinel。",
+    "expect_result": "mcp_sentinel_read 成功返回了已产生的 poll 输出（至少 poll #1 及其 JSON 内容），证明 read 分页读取可用。"
+  }
+]
