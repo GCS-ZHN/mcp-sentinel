@@ -15,12 +15,12 @@
   "scripts": {
     "build": "rm -rf dist && bunx tsc",
     "typecheck": "tsc --noEmit",
-    "format": "prettier --write \"src/**/*.ts\"",
-    "format:check": "prettier --check \"src/**/*.ts\""
+    "test": "bun test",
+    "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\""
   },
   "dependencies": {
-    "@gcszhn/mcp-sentinel-core": "1.1.0",
-    "@deepseek-ai/schemastery": "^3.18.1"
+    "@gcszhn/mcp-sentinel-core": "1.1.0"
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-agent": "^0.1.0-rc.6",
@@ -55,9 +55,7 @@
   },
   "files": [
     "dist/index.js",
-    "dist/config.js",
     "dist/index.d.ts",
-    "dist/config.d.ts",
     "cordis.patch.yml"
   ]
 }

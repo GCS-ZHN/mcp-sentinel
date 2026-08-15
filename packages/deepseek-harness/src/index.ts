@@ -1,11 +1,14 @@
 /**
  * DeepSeek Harness adapter — registers the four sentinel tools as native
- * Harness tools and wires harness-specific integration (MCP config discovery
- * and logging) into the framework-agnostic core.
+ * Harness tools and wires harness-specific integration (logging and push
+ * notification) into the framework-agnostic core.
  *
  * All request/response logic lives in `@gcszhn/mcp-sentinel-core`; this file
  * only owns the Harness seams: the `tools` and `agents` services,
- * `ctx.logger`, the `Config` schema, and `ctx.effect()` cleanup. When a
+ * `ctx.logger`, and `ctx.effect()` cleanup. It runs in **external-invoker
+ * mode**: instead of handing the core MCP server config, it reuses the MCP
+ * tools already registered by `@deepseek-ai/dsh-mcp-client` through
+ * `ctx.tools.execute`, so the user never configures MCP twice. When a
  * background sentinel resolves, it wakes the originating agent via
  * `Agent.followup` (the deepseek-harness push-notification channel).
  *
@@ -14,8 +17,9 @@
 
 import type { Context } from "@deepseek-ai/cordis";
 import { defineTool } from "@deepseek-ai/dsh-tools";
+import type { ToolExecutionResult } from "@deepseek-ai/dsh-tools";
 import type { Agent } from "@deepseek-ai/dsh-agent";
-import { createUserMessage } from "@deepseek-ai/dsh-llm";
+import { CallId, createUserMessage } from "@deepseek-ai/dsh-llm";
 import { SessionId } from "@deepseek-ai/dsh-session";
 import {
   cleanup,
@@ -24,7 +28,7 @@ import {
   handlePoll,
   handleRead,
   handleStatus,
-  makeServerResolver,
+  parseMcpContent,
   setLogSink,
   setNotifier,
 } from "@gcszhn/mcp-sentinel-core";
@@ -33,20 +37,14 @@ import type {
   SentinelEvent,
   SentinelNotifier,
   SentinelTask,
+  ToolInvoker,
 } from "@gcszhn/mcp-sentinel-core";
-import { toMcpConfig } from "./config.js";
-import type { Config } from "./config.js";
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = "mcp-sentinel";
 
 /** Services required by this plugin: the agent registry and the tool registry. */
 export const inject = ["agents", "tools"];
-
-/** Re-export the config schema (value) so Cordis validates it and fills defaults. */
-export { Config } from "./config.js";
-/** Re-export the config shape types for consumers. */
-export type { ServerConfig, StdioServerConfig, StreamableHttpServerConfig } from "./config.js";
 
 /** Canonical string output shared by every sentinel tool (markdown text). */
 const textOutput = {
@@ -55,12 +53,35 @@ const textOutput = {
 };
 
 /**
+ * Extract the canonical poll result from a `ctx.tools.execute` outcome.
+ *
+ * `@deepseek-ai/dsh-mcp-client` registers each MCP tool with the canonical
+ * value `{ content: JsonValue[], structuredContent? }`. Prefer the structured
+ * object when present; otherwise parse the rendered model-facing text blocks.
+ * Tool failures throw with their error code (e.g. `UNKNOWN_TOOL`) preserved.
+ *
+ * Exported for unit testing — this is the one harness-specific result-shape
+ * translation the external-invoker mode owns.
+ */
+export function extractToolResult(result: ToolExecutionResult): unknown {
+  if (result.isError) {
+    const code = result.error.info?.code;
+    throw new Error(code ? `${code}: ${result.error.message}` : result.error.message);
+  }
+  const value = result.value as { structuredContent?: unknown } | null;
+  if (value && typeof value === "object" && value.structuredContent !== undefined) {
+    return value.structuredContent;
+  }
+  return parseMcpContent(result.content);
+}
+
+/**
  * Build the agent-facing notification text for a resolved sentinel.
  *
  * Lives in the harness, not the core, because the message format is
  * host-specific — other hosts may render completions differently.
  */
-function buildNotificationText(task: SentinelTask, event: SentinelEvent): string {
+export function buildNotificationText(task: SentinelTask, event: SentinelEvent): string {
   switch (event) {
     case "completed":
       return `## Sentinel Complete
@@ -68,7 +89,7 @@ function buildNotificationText(task: SentinelTask, event: SentinelEvent): string
 **Server:** ${task.request.server}
 **Tool:** ${task.request.tool}
 **Poll count:** ${task.pollCount}
-**Duration:** ${((task.resolvedAt! - task.createdAt) / 1000).toFixed(1)}s
+**Duration:** ${task.resolvedAt != null ? ((task.resolvedAt - task.createdAt) / 1000).toFixed(1) : "—"}s
 **Result:**
 \`\`\`json
 ${JSON.stringify(task.lastResult, null, 2)}
@@ -96,7 +117,7 @@ ${JSON.stringify(task.lastResult, null, 2)}
 const POLL_DESCRIPTION = `Submit a long-running MCP tool call and poll it at regular intervals until a condition is met. The sentinel polls silently (zero token cost) and the agent collects the result with sentinel_attach / sentinel_status / sentinel_read.
 
 Parameters:
-- server: MCP server name (from this plugin's "servers" config)
+- server: MCP server name — the serverName of a @deepseek-ai/dsh-mcp-client instance
 - tool: Tool name to call on the server
 - args: Arguments for the tool (JSON string, default: "{}")
 - interval: Poll interval in ms (min 1000, default: 5000)
@@ -133,13 +154,13 @@ Works whether the sentinel is running, completed, cancelled, or errored.`;
 /**
  * DeepSeek Harness plugin entry point.
  *
- * Installs a logger sink, builds a server resolver from the resolved config,
- * registers the four sentinel tools, and schedules core cleanup on unload.
+ * Installs a logger sink, builds an external tool invoker over the harness's
+ * already-registered MCP tools, registers the four sentinel tools, and
+ * schedules core cleanup on unload.
  *
- * @param ctx - plugin context carrying the tool registry and logger.
- * @param config - validated MCP server configuration.
+ * @param ctx - plugin context carrying the tool registry, agent registry, and logger.
  */
-export function apply(ctx: Context, config: Config): void {
+export function apply(ctx: Context): void {
   const logger = ctx.logger("mcp-sentinel");
   setLogSink((level, message, extra) => {
     const text =
@@ -201,7 +222,20 @@ export function apply(ctx: Context, config: Config): void {
   };
   setNotifier(notifier);
 
-  const resolveServer = makeServerResolver(toMcpConfig(config));
+  // External-invoker mode: call the MCP tools already registered by
+  // `@deepseek-ai/dsh-mcp-client` through the harness tool registry instead of
+  // owning MCP connections in the core. The server name maps to the
+  // `serverName` of an mcp-client instance, and the tool name to its raw MCP
+  // tool name (`mcp__<serverName>__<rawName>`).
+  const invoke: ToolInvoker = async (server, tool, args) => {
+    const result = await ctx.tools.execute({
+      callId: CallId(`sentinel-${Date.now()}-${Math.random().toString(36).slice(2)}`),
+      name: `mcp__${server}__${tool}`,
+      arguments: args,
+      signal: new AbortController().signal,
+    });
+    return extractToolResult(result);
+  };
 
   ctx.tools.register(
     defineTool({
@@ -211,7 +245,7 @@ export function apply(ctx: Context, config: Config): void {
         server: {
           type: "string",
           required: true,
-          description: 'Name of the MCP server (from this plugin\'s "servers" config)',
+          description: "MCP server name — the serverName of a @deepseek-ai/dsh-mcp-client instance",
         },
         tool: {
           type: "string",
@@ -279,7 +313,7 @@ export function apply(ctx: Context, config: Config): void {
             until,
             sessionID: exec.agent?.id,
           },
-          resolveServer
+          invoke
         );
       },
     })
@@ -354,7 +388,6 @@ export function apply(ctx: Context, config: Config): void {
       },
     })
   );
-
   // Core cleanup runs when the plugin unloads (HMR replacement, profile
   // teardown): stop all sentinel timers, clear TTL timers, close connections.
   ctx.effect(() => {
