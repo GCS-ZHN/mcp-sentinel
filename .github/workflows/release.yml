@@ -31,7 +31,7 @@ jobs:
       - name: Verify versions match tag (lockstep)
         run: |
           TAG="${{ github.ref_name }}"
-          for pkg in packages/core packages/opencode; do
+          for pkg in packages/core packages/opencode packages/deepseek-harness; do
             PKG_VER="v$(node -e "console.log(require('./$pkg/package.json').version)")"
             if [ "$PKG_VER" != "$TAG" ]; then
               echo "$pkg version $PKG_VER != tag $TAG"
@@ -39,11 +39,13 @@ jobs:
             fi
           done
           CORE_VER="$(node -e "console.log(require('./packages/core/package.json').version)")"
-          PLUGIN_CORE_DEP="$(node -e "console.log(require('./packages/opencode/package.json').dependencies['@gcszhn/mcp-sentinel-core'])")"
-          if [ "$PLUGIN_CORE_DEP" != "$CORE_VER" ]; then
-            echo "packages/opencode depends on @gcszhn/mcp-sentinel-core@$PLUGIN_CORE_DEP, expected $CORE_VER"
-            exit 1
-          fi
+          for plugin in packages/opencode packages/deepseek-harness; do
+            PLUGIN_CORE_DEP="$(node -e "console.log(require('./$plugin/package.json').dependencies['@gcszhn/mcp-sentinel-core'])")"
+            if [ "$PLUGIN_CORE_DEP" != "$CORE_VER" ]; then
+              echo "$plugin depends on @gcszhn/mcp-sentinel-core@$PLUGIN_CORE_DEP, expected $CORE_VER"
+              exit 1
+            fi
+          done
 
       - name: Publish @gcszhn/mcp-sentinel-core
         run: npm publish --provenance --access public
@@ -51,9 +53,17 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - name: Publish @gcszhn/mcp-sentinel-opencode-plugin
-        run: npm publish --provenance --access public
-        working-directory: packages/opencode
+      # The core must be published first (plugins pin its exact version).
+      # Plugin publishes are independent of each other, so they run in
+      # parallel via background jobs and `wait`.
+      - name: Publish plugins (opencode + deepseek-harness, in parallel)
+        run: |
+          (cd packages/opencode && npm publish --provenance --access public) & P1=$!
+          (cd packages/deepseek-harness && npm publish --provenance --access public) & P2=$!
+          FAIL=0
+          wait "$P1" || FAIL=1
+          wait "$P2" || FAIL=1
+          exit "$FAIL"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 

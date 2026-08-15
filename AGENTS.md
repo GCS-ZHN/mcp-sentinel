@@ -9,6 +9,13 @@
 
 ## Harness plugin development
 
+- **Core principle: zero MCP re-configuration.** A harness plugin reuses the MCP
+  servers the harness already exposes — never a sentinel-specific MCP config or a
+  bundled mock/demo MCP. Either read the host's MCP config (connection-pool mode,
+  like OpenCode's `client.config.get().mcp`) or call the harness's
+  already-registered MCP tools through its SDK (external-invoker mode, like
+  DeepSeek Harness's `ctx.tools.execute`). Installing the plugin is the whole
+  setup; the user does not add a `servers` map for the sentinel.
 - A **new harness plugin** (`packages/<harness>`) is developed in its **own git
   worktree**, never directly on the main repo's working branch. Each harness
   plugin is independently publishable (`@gcszhn/mcp-sentinel-<harness>-plugin`), so its
@@ -16,6 +23,10 @@
   other harnesses.
 - The shared core (`packages/core`) and existing harnesses are developed in the
   main repo.
+- **Adding a new harness plugin must also update `.github/workflows/release.yml`:**
+  the lockstep version verification loop and the plugin publish step (published
+  in parallel with the other plugins, after `packages/core`). A plugin omitted
+  from CI will neither be published nor version-checked.
 
 ## Commands
 
@@ -96,25 +107,27 @@ NOT `mcp.servers.{name}`. `type` is `"local"` or `"remote"`. `local.command` is 
 ```bash
 # 1. Bump every package to the SAME version (lockstep):
 #      packages/core/package.json
-#      packages/opencode/package.json  (+ its `@gcszhn/mcp-sentinel-core` dep, pinned to the same version)
+#      packages/opencode/package.json          (+ its `@gcszhn/mcp-sentinel-core` dep, pinned to the same version)
+#      packages/deepseek-harness/package.json  (+ its `@gcszhn/mcp-sentinel-core` dep, pinned to the same version)
 # 2. Commit, tag, push
 git tag vX.Y.Z && git push origin main vX.Y.Z
 ```
 
 Tag push triggers `.github/workflows/release.yml` (typecheck → build → test →
-verify versions → publish `@gcszhn/mcp-sentinel-core` then `@gcszhn/mcp-sentinel-opencode-plugin`
-→ GitHub release).
+verify versions → publish `@gcszhn/mcp-sentinel-core`, then publish every plugin
+(`opencode`, `deepseek-harness`) in parallel → GitHub release).
 
 **No hardcoded version strings.** The MCP client info (`name`/`version`) is imported from `package.json` with `{ type: "json" }` at compile time. Updating `package.json` version is the only required change for a release.
 
 **Lockstep versioning.** Every package in the monorepo carries the **same
-version**, even if a package itself did not change. The OpenCode plugin pins
+version**, even if a package itself did not change. Each plugin pins
 `@gcszhn/mcp-sentinel-core` to that **exact** version (no `^`/`~` range). Release fails
-unless `packages/core`, `packages/opencode`, and the plugin's core dependency
-all match the tag exactly.
+unless `packages/core`, every plugin, and each plugin's core dependency all
+match the tag exactly.
 
 **Monorepo layout.** `packages/core` publishes `@gcszhn/mcp-sentinel-core`;
-`packages/opencode` publishes `@gcszhn/mcp-sentinel-opencode-plugin`.
+`packages/opencode` publishes `@gcszhn/mcp-sentinel-opencode-plugin`;
+`packages/deepseek-harness` publishes `@gcszhn/mcp-sentinel-deepseek-harness-plugin`.
 
 ## Tool development standards
 
@@ -134,6 +147,25 @@ All tools MUST validate their inputs and return **clean error strings** (`"Error
 - For `until`: validate it's a JSON object (not string, number, array, null).
 - For `args`: validate JSON parse before passing to MCP.
 - When the MCP server rejects wrong arguments, the raw MCP error (including field names and error codes) must be passed through to the agent verbatim — do not wrap or obscure it.
+
+### Condition semantics
+
+The `until` condition is a leaf-compare DSL. `evaluateCondition` enforces four
+rules, and unit tests must cover each:
+
+- **Empty `path`** (omitted, or an empty string) compares `is` against the MCP
+  tool's entire returned value — no JSON-path resolution is performed.
+- **Non-JSON payloads** (plain text) are treated as a single string; such a
+  result is only comparable with an empty `path`.
+- **Leaves only.** The resolved value (the `path` target, or the raw result when
+  `path` is empty) must be a leaf — string, number, boolean, or `null`. An
+  array/object throws during polling and surfaces as the sentinel's `error`
+  status, so the agent learns the condition is misconfigured instead of it
+  silently never matching.
+- **Missing keys / indices throw.** Resolving a `path` to a key that does not
+  exist, an out-of-range array index, or a property read off a `null`/primitive
+  node throws (surfacing as `error`) instead of silently returning
+  `undefined` — a typo'd field name must reach the agent, not poll forever.
 
 ### Error handling patterns
 
@@ -156,12 +188,75 @@ await startSentinel(...);
 
 ## Testing requirements
 
+Harness plugins are tested two ways:
+
+- **Unit tests** — in-code, fixed assertions under `packages/<pkg>/tests/*.test.ts`.
+  `packages/core` is unit-test heavy; every plugin package must also carry
+  unit tests for its own logic (e.g. result extraction, notification text).
+- **E2E tests** — agent-level semantic judgments, driven by a JSON case file plus
+  a script, never fixed string matching.
+
+**The test entrypoint is `bun test` everywhere** (root and each package runs its
+own `*.test.ts`). E2E cases are deliberately NOT `*.test.ts`: they need an agent
+and credentials, which CI does not have. CI runs `bun test` only (unit tests);
+the scripted E2E harness below is run locally.
+
+### Scripted E2E harness
+
+Each harness ships `packages/<pkg>/tests/e2e-cases.json` — a JSON array of cases:
+
+```json
+{
+  "id": "dsh-poll-attach-completes",
+  "harness_name": "deepseek-harness",
+  "headless_test_command": "npx @deepseek-ai/dsh --profile headless {prompt}",
+  "input_prompt": "…",
+  "expect_result": "…"
+}
+```
+
+- `headless_test_command` is the harness's run command (e.g. `opencode run`,
+  `dsh --profile headless`); `{prompt}` marks where `input_prompt` is injected.
+- `expect_result` is a **natural-language** expectation. `scripts/run-e2e.ts`
+  runs the command, then asks a judge model (DeepSeek) to decide semantically
+  whether the actual output satisfies it — no keyword matching.
+- Each case writes a JSON report under `e2e-results/` (gitignored); the script
+  aggregates a pass rate into `e2e-results/summary.json`.
+
+```bash
+bun scripts/run-e2e.ts                          # all harnesses
+bun scripts/run-e2e.ts --harness deepseek-harness
+bun scripts/run-e2e.ts --dry-run                # print commands only
+```
+
+Judge config: `DEEPSEEK_API_KEY` (or `~/.dsh/.credentials.yaml`),
+`DEEPSEEK_BASE_URL`, `E2E_JUDGE_MODEL`.
+
+### E2E case authoring requirements
+
+- **The pass rate is counted per case, not per file.** Each object in the JSON
+  array is one case; `summary.json` counts cases.
+- **Balanced harness coverage.** Every non-harness-specific behavior — the
+  poll + attach happy path, timeout, invalid `args`/`until`, non-leaf condition,
+  and a real stdio MCP — must have a case in **every** harness. Only
+  harness-specific behavior (OpenCode's synchronous `Unknown MCP server`,
+  DeepSeek Harness's `UNKNOWN_TOOL`) may exist in a single harness.
+- **Test timeout**, not just success/error: a sentinel whose deadline elapses
+  before the job completes must surface `timeout`.
+- **Test boundaries and invalid inputs**: invalid JSON `args`, non-object
+  `until`, empty server/tool, and the non-leaf-condition error.
+- **Test a real stdio MCP, not only the mock** — e.g. `codegraph serve --mcp`;
+  its `codegraph_explore` tool returns plain text, which also exercises the
+  non-JSON / empty-`path` handling.
+
 ### Unit tests must cover
 
 - Normal flow (happy path)
 - Invalid inputs (empty strings, wrong types, missing fields)
 - Error paths (MCP server returns errors, connection failures)
 - Edge cases (null/undefined values, array index paths, nested conditions)
+- Condition leaf constraint: a `path` (or empty-path root) resolving to an array
+  or object must throw, not silently mismatch
 - Environment variable parsing: valid positive int, 0, negative, non-numeric, unset
 - Logger: all 4 levels, unset client, client.app.log throws
 - TTL cleanup: error task cleanup, cancelled task cleanup, no cleanup when unset

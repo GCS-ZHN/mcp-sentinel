@@ -4,6 +4,24 @@ A **sentinel** between an AI agent and MCP servers — polling long-running task
 
 This is a **monorepo**: a harness-agnostic core (`@gcszhn/mcp-sentinel-core`) plus one thin plugin package per agent host.
 
+## Design principle
+
+**Zero MCP re-configuration.** The sentinel never asks the user to configure MCP
+servers of its own. Installing the plugin is the whole setup — it discovers and
+reuses the MCP servers the harness already has, in whichever way that harness
+exposes them:
+
+- **From the host's MCP config** — OpenCode. The plugin reads
+  `client.config.get().mcp` and hands the resolved servers to the core, which
+  owns the connection lifecycle. No extra MCP setup.
+- **Through the harness SDK** — DeepSeek Harness. The plugin calls the
+  `mcp__<server>__<tool>` tools already registered by
+  `@deepseek-ai/dsh-mcp-client` via `ctx.tools.execute`. No extra MCP setup.
+
+The agent immediately sees the MCP servers it already configured for that
+harness; there is no sentinel-specific MCP config, mock server, or demo wiring
+to maintain.
+
 ## Supported harnesses
 
 Install instructions and per-harness details live in each plugin's own README.

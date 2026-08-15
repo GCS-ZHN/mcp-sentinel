@@ -23,31 +23,31 @@ Verify the layer without booting:
 dsh --profile <name> --dump-config
 ```
 
-## Configure MCP servers
+## How it talks to MCP
 
-The plugin declares its own MCP server map (it does not reuse the harness's
-`@deepseek-ai/dsh-mcp-client` service, because the sentinel core owns its MCP
-connections). Override the `servers` map in your profile's `cordis.patch.yml`:
+The plugin runs in **external-invoker mode**: it reuses the MCP tools already
+registered by the harness's `@deepseek-ai/dsh-mcp-client` bridge and never owns
+MCP connections itself, so there is no separate `servers` config and no
+sentinel-specific MCP wiring. You keep configuring MCP exactly as you already do
+for the harness — one `dsh-mcp-client` instance per server:
 
 ```yaml
-- id: mcp-sentinel
-  name: "@gcszhn/mcp-sentinel-deepseek-harness-plugin"
-  config:
-    servers:
-      mock-ci:
+# This is ordinary dsh-mcp-client config, not sentinel config.
+- insert:
+    - id: mcp-ci
+      name: "@deepseek-ai/dsh-mcp-client"
+      config:
+        serverName: ci
         transport: stdio
         command: bun
-        args: ["/path/to/mock-mcp-server.ts", "--port", "0"]
-      remote:
-        transport: streamable-http
-        url: http://localhost:3000/mcp
-        headers:
-          Authorization: "Bearer ${TOKEN}"
+        args: ["/path/to/ci-mcp-server.ts"]
 ```
 
-Both `stdio` and `streamable-http` transports are supported. Every server
-defaults to `enabled: true`; set `enabled: false` to exclude one from sentinel
-lookups.
+When calling `mcp_sentinel_poll`, `server` is the mcp-client `serverName` and
+`tool` is the server's raw tool name; the sentinel invokes
+`mcp__<server>__<tool>` (e.g. `mcp__ci__get_status`) through the harness tool
+registry. Anything you already bridged with `dsh-mcp-client` is immediately
+pollable — no extra step.
 
 ## Tools
 
@@ -62,7 +62,7 @@ result with `mcp_sentinel_attach` (blocking), `mcp_sentinel_status`, or
 
 | Parameter  | Type   | Default    | Description                                 |
 | ---------- | ------ | ---------- | ------------------------------------------- |
-| `server`   | string | _required_ | MCP server name (from the `servers` config) |
+| `server`   | string | _required_ | `serverName` of a `dsh-mcp-client` instance |
 | `tool`     | string | _required_ | Tool name to call on the server             |
 | `args`     | string | `"{}"`     | JSON string of arguments for the tool       |
 | `interval` | number | `5000`     | Poll interval in milliseconds               |
@@ -88,7 +88,8 @@ Read raw poll outputs with offset/limit pagination.
 Conditions are pure declarative data:
 
 ```jsonc
-{ "path": "status", "is": "eq", "value": "completed" }        // leaf comparison
+{ "path": "status", "is": "eq", "value": "completed" }        // path leaf
+{ "is": "eq", "value": "completed" }                          // no path: compare the raw result
 { "path": "tasks[0].exit_code", "is": "ne", "value": 0 }     // array-index path
 { "not": { "path": "status", "is": "eq", "value": "error" } } // negation
 { "and": [ /* conditions */ ] }                               // logical AND
@@ -96,6 +97,7 @@ Conditions are pure declarative data:
 ```
 
 Operators: `eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `contains`, `match`.
+Omit `path` (or leave it empty) to match a non-JSON tool result directly.
 
 ## License
 
