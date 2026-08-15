@@ -1,5 +1,5 @@
 {
-  "name": "mcp-sentinel-core",
+  "name": "@gcszhn/mcp-sentinel-core",
   "version": "1.0.0",
   "description": "Harness-agnostic core of the MCP sentinel — polls long-running MCP tools on the agent's behalf with zero token cost",
   "type": "module",
@@ -28,6 +28,9 @@
     "zod": "^4.3.6"
   },
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/GCS-ZHN/opencode-mcp-sentinel.git"

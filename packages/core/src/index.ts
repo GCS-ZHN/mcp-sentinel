@@ -1,5 +1,5 @@
 /**
- * `mcp-sentinel-core` public API — the harness-agnostic sentinel core.
+ * `@gcszhn/mcp-sentinel-core` public API — the harness-agnostic sentinel core.
  *
  * Harness plugins (opencode, codex, …) depend on this package and import the
  * engine, tool handlers, types, and `ServerResolver` seam from here.

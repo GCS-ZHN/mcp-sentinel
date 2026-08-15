@@ -1,4 +1,4 @@
-# mcp-sentinel-core
+# @gcszhn/mcp-sentinel-core
 
 The harness-agnostic core of **mcp-sentinel** — polls long-running MCP tools
 on the agent's behalf so that token-costly status loops never enter the LLM
@@ -6,18 +6,18 @@ inference path.
 
 This package has **zero host dependencies**. It exposes the polling engine,
 tool handlers, condition evaluator, MCP connection pool, env parsing, logger,
-and types. Host plugins (`mcp-sentinel-opencode-plugin`, and future Codex /
+and types. Host plugins (`@gcszhn/mcp-sentinel-opencode-plugin`, and future Codex /
 Claude Code / DeepSeek adapters) layer their own tool registration, config
 discovery, and notification channel on top of it.
 
 ## Install
 
 ```bash
-npm install mcp-sentinel-core
+npm install @gcszhn/mcp-sentinel-core
 ```
 
 > You normally do **not** install this directly — install a host plugin such as
-> `mcp-sentinel-opencode-plugin`, which brings this package in as a dependency.
+> `@gcszhn/mcp-sentinel-opencode-plugin`, which brings this package in as a dependency.
 
 ## Usage (harness authors)
 
@@ -33,8 +33,13 @@ import {
   setNotifier,
   cleanup,
   disconnectAll,
-} from "mcp-sentinel-core";
-import type { McpConfig, ServerResolver, SentinelTask, SentinelEvent } from "mcp-sentinel-core";
+} from "@gcszhn/mcp-sentinel-core";
+import type {
+  McpConfig,
+  ServerResolver,
+  SentinelTask,
+  SentinelEvent,
+} from "@gcszhn/mcp-sentinel-core";
 
 // 1. Parse the host's own MCP config into a McpConfig.
 const mcpConfig: McpConfig = parseMyHostMcpConfig(rawConfig);

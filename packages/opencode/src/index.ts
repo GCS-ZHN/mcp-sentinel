@@ -15,12 +15,12 @@ import { tool } from "@opencode-ai/plugin";
 import type { PluginInput, Hooks } from "@opencode-ai/plugin";
 import type { OpencodeClient } from "@opencode-ai/sdk";
 import { parseOpencodeMcpConfig } from "./config.js";
-import { setNotifier, cleanup, makeServerResolver } from "mcp-sentinel-core";
-import type { SentinelEvent, SentinelNotifier } from "mcp-sentinel-core";
-import { disconnectAll } from "mcp-sentinel-core";
-import { setLogSink, logInfo } from "mcp-sentinel-core";
-import { handlePoll, handleStatus, handleAttach, handleRead } from "mcp-sentinel-core";
-import type { SentinelCondition, SentinelTask } from "mcp-sentinel-core";
+import { setNotifier, cleanup, makeServerResolver } from "@gcszhn/mcp-sentinel-core";
+import type { SentinelEvent, SentinelNotifier } from "@gcszhn/mcp-sentinel-core";
+import { disconnectAll } from "@gcszhn/mcp-sentinel-core";
+import { setLogSink, logInfo } from "@gcszhn/mcp-sentinel-core";
+import { handlePoll, handleStatus, handleAttach, handleRead } from "@gcszhn/mcp-sentinel-core";
+import type { SentinelCondition, SentinelTask } from "@gcszhn/mcp-sentinel-core";
 
 /** Service identifier used in the opencode log API. */
 const SERVICE_NAME = "mcp-sentinel";

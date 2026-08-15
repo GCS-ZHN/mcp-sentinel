@@ -17,7 +17,7 @@ import pkg from "../package.json" with { type: "json" };
 const { OpenCodeSentinelPlugin } = await import("./index.js");
 
 /** Plugin identifier, derived from `package.json#name`. */
-export const id = pkg.name?.trim() || "mcp-sentinel-opencode-plugin";
+export const id = pkg.name?.trim() || "@gcszhn/mcp-sentinel-opencode-plugin";
 
 /**
  * Re-exported plugin factory.

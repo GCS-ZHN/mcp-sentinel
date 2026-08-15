@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 import { parseOpencodeMcpConfig } from "../src/config.js";
-import { makeServerResolver } from "mcp-sentinel-core";
+import { makeServerResolver } from "@gcszhn/mcp-sentinel-core";
 
 describe("config-reader", () => {
   it("returns empty servers for undefined input", () => {

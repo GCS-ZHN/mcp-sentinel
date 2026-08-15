@@ -39,19 +39,19 @@ jobs:
             fi
           done
           CORE_VER="$(node -e "console.log(require('./packages/core/package.json').version)")"
-          PLUGIN_CORE_DEP="$(node -e "console.log(require('./packages/opencode/package.json').dependencies['mcp-sentinel-core'])")"
+          PLUGIN_CORE_DEP="$(node -e "console.log(require('./packages/opencode/package.json').dependencies['@gcszhn/mcp-sentinel-core'])")"
           if [ "$PLUGIN_CORE_DEP" != "$CORE_VER" ]; then
-            echo "packages/opencode depends on mcp-sentinel-core@$PLUGIN_CORE_DEP, expected $CORE_VER"
+            echo "packages/opencode depends on @gcszhn/mcp-sentinel-core@$PLUGIN_CORE_DEP, expected $CORE_VER"
             exit 1
           fi
 
-      - name: Publish mcp-sentinel-core
+      - name: Publish @gcszhn/mcp-sentinel-core
         run: npm publish --provenance --access public
         working-directory: packages/core
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - name: Publish mcp-sentinel-opencode-plugin
+      - name: Publish @gcszhn/mcp-sentinel-opencode-plugin
         run: npm publish --provenance --access public
         working-directory: packages/opencode
         env:

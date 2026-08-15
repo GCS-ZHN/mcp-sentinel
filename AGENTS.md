@@ -11,7 +11,7 @@
 
 - A **new harness plugin** (`packages/<harness>`) is developed in its **own git
   worktree**, never directly on the main repo's working branch. Each harness
-  plugin is independently publishable (`mcp-sentinel-<harness>-plugin`), so its
+  plugin is independently publishable (`@gcszhn/mcp-sentinel-<harness>-plugin`), so its
   branch, review, and release lifecycle stays isolated from the core and from
   other harnesses.
 - The shared core (`packages/core`) and existing harnesses are developed in the
@@ -96,25 +96,25 @@ NOT `mcp.servers.{name}`. `type` is `"local"` or `"remote"`. `local.command` is 
 ```bash
 # 1. Bump every package to the SAME version (lockstep):
 #      packages/core/package.json
-#      packages/opencode/package.json  (+ its `mcp-sentinel-core` dep, pinned to the same version)
+#      packages/opencode/package.json  (+ its `@gcszhn/mcp-sentinel-core` dep, pinned to the same version)
 # 2. Commit, tag, push
 git tag vX.Y.Z && git push origin main vX.Y.Z
 ```
 
 Tag push triggers `.github/workflows/release.yml` (typecheck → build → test →
-verify versions → publish `mcp-sentinel-core` then `mcp-sentinel-opencode-plugin`
+verify versions → publish `@gcszhn/mcp-sentinel-core` then `@gcszhn/mcp-sentinel-opencode-plugin`
 → GitHub release).
 
 **No hardcoded version strings.** The MCP client info (`name`/`version`) is imported from `package.json` with `{ type: "json" }` at compile time. Updating `package.json` version is the only required change for a release.
 
 **Lockstep versioning.** Every package in the monorepo carries the **same
 version**, even if a package itself did not change. The OpenCode plugin pins
-`mcp-sentinel-core` to that **exact** version (no `^`/`~` range). Release fails
+`@gcszhn/mcp-sentinel-core` to that **exact** version (no `^`/`~` range). Release fails
 unless `packages/core`, `packages/opencode`, and the plugin's core dependency
 all match the tag exactly.
 
-**Monorepo layout.** `packages/core` publishes `mcp-sentinel-core`;
-`packages/opencode` publishes `mcp-sentinel-opencode-plugin`.
+**Monorepo layout.** `packages/core` publishes `@gcszhn/mcp-sentinel-core`;
+`packages/opencode` publishes `@gcszhn/mcp-sentinel-opencode-plugin`.
 
 ## Tool development standards
 

@@ -2,17 +2,17 @@
 
 A **sentinel** between an AI agent and MCP servers — polling long-running tasks on the agent's behalf so that token-costly status loops never enter the LLM inference path.
 
-This is a **monorepo**: a harness-agnostic core (`mcp-sentinel-core`) plus one thin plugin package per agent host.
+This is a **monorepo**: a harness-agnostic core (`@gcszhn/mcp-sentinel-core`) plus one thin plugin package per agent host.
 
 ## Supported harnesses
 
 Install instructions and per-harness details live in each plugin's own README.
 
-| Harness  | Plugin package                                                                               | Docs                                  |
-| -------- | -------------------------------------------------------------------------------------------- | ------------------------------------- |
-| OpenCode | [`mcp-sentinel-opencode-plugin`](https://www.npmjs.com/package/mcp-sentinel-opencode-plugin) | [README](packages/opencode/README.md) |
+| Harness  | Plugin package                                                                                               | Docs                                  |
+| -------- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------- |
+| OpenCode | [`@gcszhn/mcp-sentinel-opencode-plugin`](https://www.npmjs.com/package/@gcszhn/mcp-sentinel-opencode-plugin) | [README](packages/opencode/README.md) |
 
-The shared core ships separately as [`mcp-sentinel-core`](https://www.npmjs.com/package/mcp-sentinel-core) — see [its README](packages/core/README.md).
+The shared core ships separately as [`@gcszhn/mcp-sentinel-core`](https://www.npmjs.com/package/@gcszhn/mcp-sentinel-core) — see [its README](packages/core/README.md).
 
 ## Motivation
 
@@ -177,11 +177,11 @@ package layered on top of it.
 
 ### Layers
 
-| Package                       | Purpose                                                                                  | Published as                    |
-| ----------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------- |
-| `packages/core`               | sentinel engine, tool handlers, condition evaluator, connection pool, env, logger, types | `mcp-sentinel-core`             |
-| `packages/opencode`           | OpenCode adapter: `tool()` definitions + `client.config.get()` + `session.promptAsync`   | `mcp-sentinel-opencode-plugin`  |
-| `packages/<harness>` (future) | one entry per host, e.g. `codex`, `claude-code`, `deepseek`                              | `mcp-sentinel-<harness>-plugin` |
+| Package                       | Purpose                                                                                  | Published as                            |
+| ----------------------------- | ---------------------------------------------------------------------------------------- | --------------------------------------- |
+| `packages/core`               | sentinel engine, tool handlers, condition evaluator, connection pool, env, logger, types | `@gcszhn/mcp-sentinel-core`             |
+| `packages/opencode`           | OpenCode adapter: `tool()` definitions + `client.config.get()` + `session.promptAsync`   | `@gcszhn/mcp-sentinel-opencode-plugin`  |
+| `packages/<harness>` (future) | one entry per host, e.g. `codex`, `claude-code`, `deepseek`                              | `@gcszhn/mcp-sentinel-<harness>-plugin` |
 
 ### Core / harness contract
 
@@ -217,8 +217,8 @@ interface Harness {
 
 0. **Develop it in its own git worktree** — a new harness plugin is isolated
    from the core and from other harnesses; see `AGENTS.md`.
-1. Create `packages/<harness>/package.json` named `mcp-sentinel-<harness>-plugin`
-   with a dependency on `mcp-sentinel-core`.
+1. Create `packages/<harness>/package.json` named `@gcszhn/mcp-sentinel-<harness>-plugin`
+   with a dependency on `@gcszhn/mcp-sentinel-core`.
 2. Parse the host's MCP config into a `McpConfig` (harness-specific).
 3. Register the four tools, delegating to the core's `handlePoll` /
    `handleStatus` / `handleAttach` / `handleRead` handlers.
@@ -254,7 +254,7 @@ sequenceDiagram
 
 ```
 packages/
-  core/                         # mcp-sentinel-core (zero host deps)
+  core/                         # @gcszhn/mcp-sentinel-core (zero host deps)
     src/
       engine.ts                 # startSentinel / cancel / getTask / getActive / cleanup
       tools.ts                  # handlePoll / handleStatus / handleAttach / handleRead
@@ -266,7 +266,7 @@ packages/
       types.ts                  # McpServerConfig / ServerResolver / Sentinel*
       index.ts                  # public barrel
     tests/
-  opencode/                     # mcp-sentinel-opencode-plugin
+  opencode/                     # @gcszhn/mcp-sentinel-opencode-plugin
     src/
       plugin.ts                 # PluginModule entry
       index.ts                  # tool() definitions + promptAsync notifier
@@ -277,7 +277,7 @@ packages/
 ```
 
 > **Build order**: each package builds independently, but the OpenCode package
-> type-checks and runs against `mcp-sentinel-core`'s published `dist/`. Run
+> type-checks and runs against `@gcszhn/mcp-sentinel-core`'s published `dist/`. Run
 > `bun run build` (core first, then opencode) before `bun test`.
 
 ## License

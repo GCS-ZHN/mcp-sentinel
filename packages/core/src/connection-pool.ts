@@ -34,7 +34,7 @@ import pkg from "../package.json" with { type: "json" };
 
 /** MCP client info derived from `package.json` at build time. */
 const CLIENT_INFO = {
-  name: pkg.name ?? "mcp-sentinel-core",
+  name: pkg.name ?? "@gcszhn/mcp-sentinel-core",
   version: pkg.version ?? "0.0.0",
 };
 

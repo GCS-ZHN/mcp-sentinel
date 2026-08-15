@@ -20,7 +20,7 @@ import type {
   McpLocalConfig,
   McpRemoteConfig,
   McpConfig,
-} from "mcp-sentinel-core";
+} from "@gcszhn/mcp-sentinel-core";
 
 /**
  * Parse the raw OpenCode config (`client.config.get().data`) into a typed

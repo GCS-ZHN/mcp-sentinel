@@ -1,15 +1,15 @@
-# mcp-sentinel-opencode-plugin
+# @gcszhn/mcp-sentinel-opencode-plugin
 
 An [OpenCode](https://opencode.ai) plugin that acts as a **sentinel** between
 the AI agent and MCP servers — polling long-running tasks on the agent's behalf
 so that token-costly status loops never enter the LLM inference path.
 
-This package is the OpenCode harness adapter for `mcp-sentinel-core`.
+This package is the OpenCode harness adapter for `@gcszhn/mcp-sentinel-core`.
 
 ## Install
 
 ```bash
-opencode plugin -g mcp-sentinel-opencode-plugin
+opencode plugin -g @gcszhn/mcp-sentinel-opencode-plugin
 ```
 
 Or add it to your `opencode.jsonc` (project `.opencode/opencode.jsonc` or
@@ -17,7 +17,7 @@ global `~/.config/opencode/opencode.jsonc`):
 
 ```jsonc
 {
-  "plugin": ["mcp-sentinel-opencode-plugin"],
+  "plugin": ["@gcszhn/mcp-sentinel-opencode-plugin"],
 }
 ```
 
