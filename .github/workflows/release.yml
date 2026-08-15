@@ -28,17 +28,26 @@ jobs:
       - run: bun run build
       - run: bun test
 
-      - name: Verify version matches tag
+      - name: Verify package versions match tag
         run: |
-          PKG_VER="v$(node -e "console.log(require('./package.json').version)")"
           TAG="${{ github.ref_name }}"
-          if [ "$PKG_VER" != "$TAG" ]; then
-            echo "Package version $PKG_VER != tag $TAG"
-            exit 1
-          fi
+          for pkg in packages/core packages/opencode; do
+            PKG_VER="v$(node -e "console.log(require('./$pkg/package.json').version)")"
+            if [ "$PKG_VER" != "$TAG" ]; then
+              echo "$pkg version $PKG_VER != tag $TAG"
+              exit 1
+            fi
+          done
 
-      - name: Publish to npm
+      - name: Publish mcp-sentinel-core
         run: npm publish --provenance --access public
+        working-directory: packages/core
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish mcp-sentinel-opencode-plugin
+        run: npm publish --provenance --access public
+        working-directory: packages/opencode
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 

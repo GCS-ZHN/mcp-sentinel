@@ -1,0 +1,41 @@
+{
+  "name": "mcp-sentinel-core",
+  "version": "0.4.1",
+  "description": "Harness-agnostic core of the MCP sentinel — polls long-running MCP tools on the agent's behalf with zero token cost",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "rm -rf dist && bunx tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\""
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.25.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.8",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.3",
+    "zod": "^4.3.6"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/GCS-ZHN/opencode-mcp-sentinel.git"
+  },
+  "files": [
+    "dist",
+    "package.json",
+    "README.md",
+    "LICENSE"
+  ]
+}

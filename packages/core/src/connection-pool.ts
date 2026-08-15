@@ -30,11 +30,11 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { McpServerConfig, McpLocalConfig, McpRemoteConfig } from "./types.js";
 import { logDebug } from "./logger.js";
-import pkg from "../../package.json" with { type: "json" };
+import pkg from "../package.json" with { type: "json" };
 
 /** MCP client info derived from `package.json` at build time. */
 const CLIENT_INFO = {
-  name: pkg.name ?? "opencode-mcp-sentinel",
+  name: pkg.name ?? "mcp-sentinel-core",
   version: pkg.version ?? "0.0.0",
 };
 
@@ -52,9 +52,9 @@ interface ConnectionEntry {
   connectedAt: number;
   /** Unix-epoch timestamp of the most recent cache hit or usage. */
   lastUsedAt: number;
-  /** Server name from opencode config (for reconnection). */
+  /** Server name from the host's MCP config (for reconnection). */
   serverName: string;
-  /** Server config from opencode config (for reconnection). */
+  /** Server config from the host's MCP config (for reconnection). */
   serverConfig: McpServerConfig;
 }
 
@@ -125,6 +125,7 @@ async function createTransport(config: McpServerConfig) {
     command,
     args,
     env: localConfig.env,
+    cwd: localConfig.cwd,
   });
   return transport;
 }
@@ -137,7 +138,7 @@ async function createTransport(config: McpServerConfig) {
  * fails with a recoverable error, {@link callTool} will evict it from the
  * cache and call this function again to rebuild.
  *
- * @param name - MCP server name (from opencode config).
+ * @param name - MCP server name (from the host's MCP config).
  * @param config - Parsed server configuration.
  * @returns A connected MCP client instance.
  */

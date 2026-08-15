@@ -18,19 +18,19 @@
  * shared, cached client from {@link getOrCreateClient}).
  *
  * ## Notification
- * When a sentinel resolves, a prompt notification is sent to the originating
- * agent session via the opencode SDK. Notification failure is non-fatal.
+ * When a sentinel resolves, an injected {@link SentinelNotifier} callback is
+ * invoked. The host adapter implements this through its own message channel
+ * (e.g. OpenCode's `session.promptAsync`); the core itself has no opinion on
+ * how a notification is delivered. Notification failure is non-fatal.
  *
  * @module
  */
 
-import { evaluateCondition } from "./condition-evaluator.js";
-import { getOrCreateClient, callTool } from "./mcp-connection-manager.js";
-import { lookupServer } from "./config-reader.js";
-import { getMaxPollLog, getTaskTtlMs } from "./sentinel-config.js";
+import { evaluateCondition } from "./condition.js";
+import { getOrCreateClient, callTool } from "./connection-pool.js";
+import { getMaxPollLog, getTaskTtlMs } from "./env.js";
 import { logInfo, logWarn, logError, logDebug } from "./logger.js";
-import type { SentinelRequest, SentinelTask, McpConfig } from "./types.js";
-import type { OpencodeClient } from "@opencode-ai/sdk";
+import type { SentinelRequest, SentinelTask, ServerResolver } from "./types.js";
 
 /**
  * All sentinel tasks, indexed by ID.
@@ -45,18 +45,28 @@ const activeTimers = new Map<string, ReturnType<typeof setInterval>>();
 /** `setTimeout` handles for deferred TTL cleanup of resolved tasks. */
 const cleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
-let _client: OpencodeClient | null = null;
+/** Sentinel lifecycle events delivered to the {@link SentinelNotifier}. */
+export type SentinelEvent = "completed" | "failed" | "timeout";
 
 /**
- * Store a reference to the opencode SDK client so sentinel notification
- * prompts can be delivered to the agent session.
+ * Notifier callback invoked when a sentinel transitions out of the polling
+ * state. Receives the task (which already carries `lastResult` / `error`)
+ * so adapters can build their own message format.
+ */
+export type SentinelNotifier = (task: SentinelTask, event: SentinelEvent) => void | Promise<void>;
+
+let _notifier: SentinelNotifier | null = null;
+
+/**
+ * Install (or clear, with `null`) the notifier invoked when a sentinel
+ * resolves.
  *
  * Must be called during plugin initialization, before any sentinel is started.
  *
- * @param client - The opencode SDK client from {@link PluginInput}.
+ * @param notifier - The callback to invoke on resolution.
  */
-export function setNotifyFn(client: OpencodeClient): void {
-  _client = client;
+export function setNotifier(notifier: SentinelNotifier | null): void {
+  _notifier = notifier;
 }
 
 /**
@@ -82,21 +92,21 @@ function generateId(): string {
  * {@link callTool} will reconnect transparently and the poll continues.
  *
  * @param request - Sentinel parameters (server, tool, args, interval, etc.).
- * @param mcpConfig - Parsed opencode MCP configuration.
+ * @param resolveServer - Resolves a target MCP server by name (provided by the
+ *                        harness from its own config source).
  * @returns The generated sentinel ID string.
- * @throws {Error} If the configured MCP server is not found in `mcpConfig`
- *                 or is disabled.
+ * @throws {Error} If `resolveServer` returns `null` for the requested server.
  */
 export async function startSentinel(
   request: SentinelRequest,
-  mcpConfig: McpConfig
+  resolveServer: ServerResolver
 ): Promise<string> {
   const id = generateId();
   const interval = Math.max(request.interval ?? 5000, 1000);
   const timeout =
     request.timeout != null && request.timeout > 0 ? Math.max(request.timeout, 5000) : undefined;
 
-  const serverConfig = lookupServer(mcpConfig, request.server);
+  const serverConfig = resolveServer(request.server);
   if (!serverConfig) {
     throw new Error(`Unknown MCP server: ${request.server}`);
   }
@@ -155,7 +165,7 @@ export async function startSentinel(
         tool: request.tool,
         pollCount: t.pollCount,
       });
-      await notify(id, request.sessionID, "failed", String(err));
+      await notify(t, "failed");
     }
 
     if (timeout && Date.now() - t.createdAt >= timeout) {
@@ -169,7 +179,7 @@ export async function startSentinel(
         tool: request.tool,
         timeout,
       });
-      await notify(id, request.sessionID, "timeout", null);
+      await notify(t, "timeout");
     }
   };
 
@@ -205,58 +215,25 @@ async function resolveSentinel(id: string, result: unknown): Promise<void> {
     duration: task.resolvedAt - task.createdAt,
   });
 
-  await notify(id, task.request.sessionID, "completed", result);
+  await notify(task, "completed");
 }
 
 /**
- * Send a prompt notification to the agent session that originated the
- * sentinel.
- *
- * Notification uses `client.session.promptAsync()` (NOT `prompt()`). Part
- * IDs must start with `prt-` per the opencode plugin SDK convention.
+ * Invoke the installed notifier for a resolved sentinel.
  *
  * Notification failure is silently ignored — the sentinel task state is
  * still accessible via `mcp_sentinel_status` and `mcp_sentinel_read`.
  *
- * @param id - Sentinel ID.
- * @param sessionID - Agent session ID from the originating request.
- * @param type - Notification type: `completed`, `failed`, or `timeout`.
- * @param data - The result data (for `completed`) or error message (for `failed`).
+ * @param task - The resolved task (already carries `lastResult`/`error`).
+ * @param event - The resolution event: `completed`, `failed`, or `timeout`.
  */
-async function notify(
-  id: string,
-  sessionID: string,
-  type: "completed" | "failed" | "timeout",
-  data: unknown
-): Promise<void> {
-  const task = activeSentinels.get(id);
-  if (!task || !_client) return;
-
-  if (!sessionID) return;
-
-  let text: string;
-  switch (type) {
-    case "completed":
-      text = `## Sentinel Complete\n\n**Server:** ${task.request.server}\n**Tool:** ${task.request.tool}\n**Poll count:** ${task.pollCount}\n**Duration:** ${((task.resolvedAt! - task.createdAt) / 1000).toFixed(1)}s\n**Result:**\n\`\`\`json\n${JSON.stringify(data, null, 2)}\n\`\`\``;
-      break;
-    case "failed":
-      text = `## Sentinel Failed\n\n**Server:** ${task.request.server}\n**Tool:** ${task.request.tool}\n**Poll count:** ${task.pollCount}\n**Error:** ${data}`;
-      break;
-    case "timeout":
-      text = `## Sentinel Timeout\n\n**Server:** ${task.request.server}\n**Tool:** ${task.request.tool}\n**Poll count:** ${task.pollCount}\n**Last result:**\n\`\`\`json\n${JSON.stringify(task.lastResult, null, 2)}\n\`\`\``;
-      break;
-  }
-
+async function notify(task: SentinelTask, event: SentinelEvent): Promise<void> {
+  if (!_notifier) return;
   try {
-    await _client.session.promptAsync({
-      path: { id: sessionID },
-      body: {
-        parts: [{ id: `prt-sentinel-${id}-${Date.now()}`, type: "text", text }],
-      },
-    });
+    await _notifier(task, event);
   } catch {
-    // prompt notification failure is non-fatal: the task state is still
-    // queryable via mcp_sentinel_status / mcp_sentinel_read
+    // notification failure is non-fatal: the task state is still queryable
+    // via mcp_sentinel_status / mcp_sentinel_read
   }
 }
 

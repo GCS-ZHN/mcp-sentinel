@@ -1,24 +1,25 @@
 import { describe, it, expect } from "bun:test";
-import { parseMcpConfig, lookupServer } from "../src/services/config-reader.js";
+import { parseOpencodeMcpConfig } from "../src/config.js";
+import { makeServerResolver } from "mcp-sentinel-core";
 
 describe("config-reader", () => {
   it("returns empty servers for undefined input", () => {
-    const config = parseMcpConfig(undefined);
+    const config = parseOpencodeMcpConfig(undefined);
     expect(config.servers).toEqual({});
   });
 
   it("returns empty servers for non-object input", () => {
-    const config = parseMcpConfig("string");
+    const config = parseOpencodeMcpConfig("string");
     expect(config.servers).toEqual({});
   });
 
   it("returns empty servers for null input", () => {
-    const config = parseMcpConfig(null);
+    const config = parseOpencodeMcpConfig(null);
     expect(config.servers).toEqual({});
   });
 
   it("parses local (stdio) server config with command array", () => {
-    const config = parseMcpConfig({
+    const config = parseOpencodeMcpConfig({
       mcp: {
         myserver: {
           type: "local",
@@ -36,7 +37,7 @@ describe("config-reader", () => {
   });
 
   it("parses local server with string command + args", () => {
-    const config = parseMcpConfig({
+    const config = parseOpencodeMcpConfig({
       mcp: {
         srv: {
           type: "stdio",
@@ -52,7 +53,7 @@ describe("config-reader", () => {
   });
 
   it("parses remote server config", () => {
-    const config = parseMcpConfig({
+    const config = parseOpencodeMcpConfig({
       mcp: {
         remote: {
           type: "remote",
@@ -69,7 +70,7 @@ describe("config-reader", () => {
   });
 
   it("parses multiple servers", () => {
-    const config = parseMcpConfig({
+    const config = parseOpencodeMcpConfig({
       mcp: {
         s1: { type: "local", command: ["cmd1"] },
         s2: { type: "remote", url: "http://localhost:4000" },
@@ -80,47 +81,85 @@ describe("config-reader", () => {
   });
 
   it("handles missing mcp key", () => {
-    const config = parseMcpConfig({ other: "stuff" });
+    const config = parseOpencodeMcpConfig({ other: "stuff" });
     expect(config.servers).toEqual({});
   });
 
   it("handles empty mcp object", () => {
-    const config = parseMcpConfig({ mcp: {} });
+    const config = parseOpencodeMcpConfig({ mcp: {} });
     expect(config.servers).toEqual({});
   });
 
-  it("lookupServer finds server by name", () => {
-    const config = parseMcpConfig({
+  it("makeServerResolver resolves a server by name", () => {
+    const config = parseOpencodeMcpConfig({
       mcp: { test: { type: "remote", url: "http://localhost" } },
     });
 
-    const found = lookupServer(config, "test");
+    const resolve = makeServerResolver(config);
+    const found = resolve("test");
     expect(found).toBeDefined();
     expect(found!.type).toBe("remote");
 
-    const notFound = lookupServer(config, "missing");
+    const notFound = resolve("missing");
     expect(notFound).toBeNull();
   });
 
-  it("lookupServer respects enabled:false", () => {
-    const config = parseMcpConfig({
+  it("makeServerResolver respects enabled:false", () => {
+    const config = parseOpencodeMcpConfig({
       mcp: {
         enabled_server: { type: "remote", url: "http://localhost", enabled: true },
         disabled_server: { type: "remote", url: "http://localhost", enabled: false },
       },
     });
 
-    expect(lookupServer(config, "enabled_server")).toBeDefined();
-    expect(lookupServer(config, "disabled_server")).toBeNull();
+    const resolve = makeServerResolver(config);
+    expect(resolve("enabled_server")).toBeDefined();
+    expect(resolve("disabled_server")).toBeNull();
   });
 
   it("skips servers with unsupported types", () => {
-    const config = parseMcpConfig({
+    const config = parseOpencodeMcpConfig({
       mcp: {
         weird: { type: "unknown", foo: "bar" },
       },
     });
 
     expect(config.servers.weird).toBeUndefined();
+  });
+
+  it("infers local transport from command when type is absent", () => {
+    const config = parseOpencodeMcpConfig({
+      mcp: {
+        inferredLocal: {
+          command: "bun",
+          args: ["run", "server.ts"],
+          cwd: "/tmp",
+          env: { KEY: "value" },
+        },
+      },
+    });
+
+    expect(config.servers.inferredLocal).toBeDefined();
+    const local = config.servers.inferredLocal as {
+      type: "local";
+      command: string[];
+      cwd?: string;
+    };
+    expect(local.type).toBe("local");
+    expect(local.command).toEqual(["bun", "run", "server.ts"]);
+    expect(local.cwd).toBe("/tmp");
+  });
+
+  it("infers remote transport from url when type is absent", () => {
+    const config = parseOpencodeMcpConfig({
+      mcp: {
+        inferredRemote: {
+          url: "https://example.com/mcp",
+        },
+      },
+    });
+
+    expect(config.servers.inferredRemote).toBeDefined();
+    expect(config.servers.inferredRemote!.type).toBe("remote");
   });
 });
