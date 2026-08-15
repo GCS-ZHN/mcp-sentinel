@@ -44,8 +44,14 @@ export type ComparisonOp = "eq" | "ne" | "gt" | "gte" | "lt" | "lte" | "contains
  * ```
  */
 export interface SimpleCondition {
-  /** Dot-path into the poll result JSON (e.g. `"status"`, `"items[0].name"`). */
-  path: string;
+  /**
+   * Dot-path into the poll result JSON (e.g. `"status"`, `"items[0].name"`).
+   *
+   * Omit (or leave empty) to compare against the raw poll result itself —
+   * no JSON-path resolution is performed. This supports MCP tools that return
+   * non-JSON payloads (plain text, numbers, booleans, …).
+   */
+  path?: string;
   /** Comparison operator. */
   is: ComparisonOp;
   /** Expected value to compare against. */
@@ -173,3 +179,27 @@ export interface McpConfig {
  * `.mcp.json`, …).
  */
 export type ServerResolver = (name: string) => McpServerConfig | null;
+
+/**
+ * Invoke an MCP tool and return its parsed result.
+ *
+ * This is the single seam the engine uses to talk to MCP. Two harness
+ * strategies produce it:
+ *
+ * 1. **Connection-pool mode** — the harness registers MCP server configs with
+ *    the core and lets the core own the connection lifecycle. Build it with
+ *    {@link makeConnectionInvoker} from a {@link ServerResolver}.
+ * 2. **External-invoker mode** — the harness already owns MCP (e.g. its own
+ *    MCP bridge registered tools on a tool registry); the harness passes its
+ *    own `(server, tool, args) => result` function and the core never opens a
+ *    connection.
+ *
+ * The returned value must already be the canonical result the condition
+ * evaluator inspects: a parsed JSON object, or a raw non-JSON value for tools
+ * that return plain text/numbers.
+ */
+export type ToolInvoker = (
+  server: string,
+  tool: string,
+  args: Record<string, unknown>
+) => Promise<unknown>;

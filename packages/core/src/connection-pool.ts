@@ -28,7 +28,13 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import type { McpServerConfig, McpLocalConfig, McpRemoteConfig } from "./types.js";
+import type {
+  McpServerConfig,
+  McpLocalConfig,
+  McpRemoteConfig,
+  ServerResolver,
+  ToolInvoker,
+} from "./types.js";
 import { logDebug } from "./logger.js";
 import pkg from "../package.json" with { type: "json" };
 
@@ -312,6 +318,40 @@ export async function callTool(
 }
 
 /**
+ * Extract the canonical result from a raw MCP content array.
+ *
+ * Joins text blocks and parses a single JSON document when possible; a lone
+ * text block that is not JSON is returned verbatim; multiple non-JSON blocks
+ * are joined; a content array with no text blocks (or a non-array value) is
+ * returned as-is. This is the shared normalization used by both connection-pool
+ * mode and external-invoker mode so the condition evaluator sees one uniform
+ * result shape.
+ *
+ * @param content - The MCP `content` array (or any value to pass through).
+ * @returns A parsed JSON object, a string, or the original content array.
+ */
+export function parseMcpContent(content: unknown): unknown {
+  if (!Array.isArray(content)) return content;
+
+  const textParts = (content as Array<{ type: string; text?: string }>)
+    .filter(
+      (c): c is { type: "text"; text: string } =>
+        c != null && c.type === "text" && typeof c.text === "string"
+    )
+    .map((c) => c.text);
+
+  if (textParts.length === 0) return content;
+
+  const combined = textParts.join("");
+  try {
+    return JSON.parse(combined);
+  } catch {
+    if (textParts.length === 1) return textParts[0];
+    return combined;
+  }
+}
+
+/**
  * Low-level tool invocation without retry logic.
  *
  * Calls `client.callTool`, checks for MCP-level errors (`result.isError`),
@@ -333,30 +373,31 @@ async function invokeTool(
   if (result.isError) {
     const errorContent = result.content as Array<{ type: string; text?: string }>;
     const texts = errorContent
-      .filter((c) => c.type === "text" && typeof c.text === "string")
-      .map((c) => c.text!);
+      .filter((c) => c != null && c.type === "text" && typeof c.text === "string")
+      .map((c) => c.text);
     const message = texts.length > 0 ? texts.join("\n") : JSON.stringify(result.content);
     throw new Error(`MCP tool call error: ${message}`);
   }
 
-  const content = result.content as Array<{ type: string; text?: string }>;
-  const textParts = content
-    .filter(
-      (c): c is { type: "text"; text: string } => c.type === "text" && typeof c.text === "string"
-    )
-    .map((c) => c.text);
+  return parseMcpContent(result.content);
+}
 
-  if (textParts.length === 0) {
-    return content;
-  }
-
-  const combined = textParts.join("");
-  try {
-    return JSON.parse(combined);
-  } catch {
-    if (textParts.length === 1) return textParts[0];
-    return combined;
-  }
+/**
+ * Build a {@link ToolInvoker} for connection-pool mode: resolve the server
+ * config, lazily connect (reusing the shared cache), and call the tool.
+ *
+ * @param resolveServer - Resolves a server name to its MCP config.
+ * @returns An invoker the engine calls once per poll.
+ */
+export function makeConnectionInvoker(resolveServer: ServerResolver): ToolInvoker {
+  return async (server, tool, args) => {
+    const config = resolveServer(server);
+    if (!config) {
+      throw new Error(`Unknown MCP server: ${server}`);
+    }
+    const client = await getOrCreateClient(server, config);
+    return callTool(client, tool, args);
+  };
 }
 
 /**

@@ -5,6 +5,11 @@
  * result and reports whether the resolved value satisfies the condition.
  * Compound conditions (`not`, `and`, `or`) are evaluated recursively.
  *
+ * A leaf condition without a `path` (or with an empty path) compares against
+ * the raw poll result directly — no JSON-path resolution is performed — so
+ * tools returning non-JSON payloads (plain text, numbers, booleans) can still
+ * be matched.
+ *
  * @module
  */
 
@@ -14,16 +19,21 @@ import type { SentinelCondition } from "./types.js";
  * Walk a JSON value by dot-path, supporting array index notation.
  *
  * Array indices are normalized from `[n]` to `.n` before splitting on `.`.
- * Returns `undefined` for any null or undefined intermediate node.
+ * Unlike a silent `undefined`, a missing key, an out-of-range array index, or
+ * reading a property off a `null`/primitive intermediate node **throws** — the
+ * condition is misconfigured and the agent must learn about it rather than the
+ * sentinel silently polling forever.
  *
  * @param obj - The JSON value to traverse (typically a poll result).
  * @param path - Dot-path string (e.g. `"status"`, `"items[0].name"`).
- * @returns The resolved value, or `undefined` if the path doesn't exist.
+ * @returns The resolved value.
+ * @throws {Error} If the path references a missing key, an out-of-range array
+ *         index, or a property on a `null`/primitive node.
  *
  * @example
  * ```ts
  * resolvePath({ a: [{ b: 2 }] }, "a[0].b")  // → 2
- * resolvePath({ x: null }, "x.y")             // → undefined
+ * resolvePath({ x: null }, "x.y")             // → throws (cannot read "y" of null)
  * ```
  */
 function resolvePath(obj: unknown, path: string): unknown {
@@ -33,10 +43,43 @@ function resolvePath(obj: unknown, path: string): unknown {
     .filter(Boolean);
   let current = obj;
   for (const key of keys) {
-    if (current == null) return undefined;
-    current = (current as Record<string, unknown>)[key];
+    if (current == null) {
+      throw new Error(
+        `Cannot resolve path "${path}": cannot read "${key}" of ${current === null ? "null" : "undefined"}.`
+      );
+    }
+    if (Array.isArray(current)) {
+      const index = Number(key);
+      if (!Number.isInteger(index) || index < 0 || index >= current.length) {
+        throw new Error(
+          `Cannot resolve path "${path}": index ${key} is out of range (array length ${current.length}).`
+        );
+      }
+      current = current[index];
+    } else if (typeof current === "object") {
+      if (!Object.prototype.hasOwnProperty.call(current, key)) {
+        throw new Error(`Cannot resolve path "${path}": key "${key}" does not exist.`);
+      }
+      current = (current as Record<string, unknown>)[key];
+    } else {
+      throw new Error(
+        `Cannot resolve path "${path}": cannot read "${key}" of a ${typeof current} value.`
+      );
+    }
   }
   return current;
+}
+
+/**
+ * Whether a resolved comparison value is a non-leaf (array or object).
+ *
+ * The condition DSL compares leaves only: strings, numbers, booleans, or
+ * `null`. Resolving a `path` (or the whole result) to an array or object is a
+ * misconfiguration — the agent asked to compare a structured value — and must
+ * surface as an error rather than silently never matching.
+ */
+function isNonLeaf(value: unknown): boolean {
+  return value !== null && typeof value === "object";
 }
 
 /**
@@ -49,8 +92,8 @@ function resolvePath(obj: unknown, path: string): unknown {
  * @param actual - The value resolved from the poll result.
  * @param op - Comparison operator.
  * @param expected - The expected value from the condition.
- * @returns `true` if the comparison succeeds. Unknown operators always
- *          produce `false`.
+ * @returns `true` if the comparison succeeds.
+ * @throws {Error} For an unknown operator.
  */
 function compare(actual: unknown, op: string, expected: unknown): boolean {
   switch (op) {
@@ -77,7 +120,9 @@ function compare(actual: unknown, op: string, expected: unknown): boolean {
         return false;
       }
     default:
-      return false;
+      throw new Error(
+        `Unknown comparison operator: "${op}". Use one of: eq, ne, gt, gte, lt, lte, contains, match.`
+      );
   }
 }
 
@@ -85,7 +130,8 @@ function compare(actual: unknown, op: string, expected: unknown): boolean {
  * Evaluate a {@link SentinelCondition} against poll result data.
  *
  * Recursively handles:
- * - **Leaf** (`path` + `is` + `value`): resolves the path, then compares.
+ * - **Leaf** (`is` + `value`, optional `path`): resolves the path when present,
+ *   otherwise compares the raw `data` value.
  * - **`not`**: negates the nested condition.
  * - **`and`**: short-circuits on first `false`.
  * - **`or`**: short-circuits on first `true`.
@@ -93,6 +139,8 @@ function compare(actual: unknown, op: string, expected: unknown): boolean {
  * @param condition - The condition to evaluate.
  * @param data - The JSON poll result (may be object, string, number, etc.).
  * @returns `true` if the condition is satisfied for `data`.
+ * @throws {Error} For a malformed condition (no is/not/and/or) or an unknown
+ *         operator.
  *
  * @example
  * ```ts
@@ -108,8 +156,15 @@ function compare(actual: unknown, op: string, expected: unknown): boolean {
  * ```
  */
 export function evaluateCondition(condition: SentinelCondition, data: unknown): boolean {
-  if ("path" in condition) {
-    const actual = resolvePath(data, condition.path);
+  if ("is" in condition) {
+    const actual = condition.path ? resolvePath(data, condition.path) : data;
+    if (isNonLeaf(actual)) {
+      const kind = Array.isArray(actual) ? "array" : "object";
+      const location = condition.path ? `path "${condition.path}"` : "the raw result";
+      throw new Error(
+        `Condition resolved ${location} to a ${kind}; only leaf values (string, number, boolean, null) are comparable.`
+      );
+    }
     return compare(actual, condition.is, condition.value);
   }
 
@@ -125,5 +180,5 @@ export function evaluateCondition(condition: SentinelCondition, data: unknown): 
     return condition.or.some((c) => evaluateCondition(c, data));
   }
 
-  return false;
+  throw new Error('Invalid condition: expected one of "is", "not", "and", or "or".');
 }

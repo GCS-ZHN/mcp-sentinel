@@ -13,7 +13,7 @@
  */
 
 import { startSentinel, cancelSentinel, getSentinelTask, getActiveSentinels } from "./engine.js";
-import type { SentinelCondition, SentinelRequest, ServerResolver } from "./types.js";
+import type { SentinelCondition, SentinelRequest, ToolInvoker } from "./types.js";
 
 /** Normalized inputs for {@link handlePoll}. */
 export interface PollHandlerInput {
@@ -30,10 +30,7 @@ export interface PollHandlerInput {
  * `mcp_sentinel_poll` — submit a long-running MCP tool call and poll it until
  * a condition is met.
  */
-export async function handlePoll(
-  input: PollHandlerInput,
-  resolveServer: ServerResolver
-): Promise<string> {
+export async function handlePoll(input: PollHandlerInput, invoke: ToolInvoker): Promise<string> {
   if (!input.server.trim() || !input.tool.trim()) {
     return "Error: server and tool must be non-empty strings.";
   }
@@ -44,9 +41,9 @@ export async function handlePoll(
 
   try {
     const request: SentinelRequest = { ...input };
-    const id = await startSentinel(request, resolveServer);
+    const id = await startSentinel(request, invoke);
 
-    return `Sentinel started.\n\n**ID:** \`${id}\`\n**Server:** ${request.server}\n**Tool:** ${request.tool}\n**Interval:** ${request.interval ?? 5000}ms\n**Timeout:** ${request.timeout ? request.timeout + "ms" : "none"}\n\nUse \`sentinel_status\` to check progress or cancel.`;
+    return `Sentinel started.\n\n**ID:** \`${id}\`\n**Server:** ${request.server}\n**Tool:** ${request.tool}\n**Interval:** ${request.interval ?? 5000}ms\n**Timeout:** ${request.timeout ? request.timeout + "ms" : "none"}\n\nUse \`mcp_sentinel_status\` to check progress or cancel.`;
   } catch (err) {
     return `Error: ${String(err)}`;
   }
@@ -154,7 +151,7 @@ export async function handleAttach(
           `**Server:** ${current.request.server}`,
           `**Tool:** ${current.request.tool}`,
           `**Polls:** ${current.pollCount}`,
-          `**Duration:** ${((current.resolvedAt! - current.createdAt) / 1000).toFixed(1)}s`,
+          `**Duration:** ${current.resolvedAt != null ? ((current.resolvedAt - current.createdAt) / 1000).toFixed(1) : "—"}s`,
           `**Result:**\n\`\`\`json\n${JSON.stringify(current.lastResult, null, 2)}\n\`\`\``,
         ].join("\n");
       }

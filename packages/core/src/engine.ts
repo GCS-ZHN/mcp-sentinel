@@ -27,10 +27,9 @@
  */
 
 import { evaluateCondition } from "./condition.js";
-import { getOrCreateClient, callTool } from "./connection-pool.js";
 import { getMaxPollLog, getTaskTtlMs } from "./env.js";
 import { logInfo, logWarn, logError, logDebug } from "./logger.js";
-import type { SentinelRequest, SentinelTask, ServerResolver } from "./types.js";
+import type { SentinelRequest, SentinelTask, ToolInvoker } from "./types.js";
 
 /**
  * All sentinel tasks, indexed by ID.
@@ -87,29 +86,21 @@ function generateId(): string {
  * - `timeout` is clamped to min `5000 ms` when `> 0`. `0` / `undefined` = no limit.
  *
  * The first poll fires immediately; subsequent polls run on `setInterval`.
- * The sentinel's poll loop is **shared with connection reconnection**: if the
- * MCP session expires or the server is temporarily unreachable,
- * {@link callTool} will reconnect transparently and the poll continues.
+ * Each poll delegates the actual MCP call to the supplied {@link ToolInvoker},
+ * so reconnection policy is owned by whichever strategy produced the invoker.
  *
  * @param request - Sentinel parameters (server, tool, args, interval, etc.).
- * @param resolveServer - Resolves a target MCP server by name (provided by the
- *                        harness from its own config source).
+ * @param invoke - Invokes the target MCP tool and returns its parsed result.
  * @returns The generated sentinel ID string.
- * @throws {Error} If `resolveServer` returns `null` for the requested server.
  */
 export async function startSentinel(
   request: SentinelRequest,
-  resolveServer: ServerResolver
+  invoke: ToolInvoker
 ): Promise<string> {
   const id = generateId();
   const interval = Math.max(request.interval ?? 5000, 1000);
   const timeout =
     request.timeout != null && request.timeout > 0 ? Math.max(request.timeout, 5000) : undefined;
-
-  const serverConfig = resolveServer(request.server);
-  if (!serverConfig) {
-    throw new Error(`Unknown MCP server: ${request.server}`);
-  }
 
   const task: SentinelTask = {
     id,
@@ -129,8 +120,7 @@ export async function startSentinel(
     if (!t || t.status !== "polling") return;
 
     try {
-      const client = await getOrCreateClient(request.server, serverConfig);
-      const result = await callTool(client, request.tool, request.args);
+      const result = await invoke(request.server, request.tool, request.args);
 
       t.pollCount++;
       t.lastResult = result;
