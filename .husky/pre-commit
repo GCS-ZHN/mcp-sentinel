@@ -1,1 +1,1 @@
-bun run typecheck && bunx lint-staged
+bun run typecheck && bun scripts/verify-versions.ts && bunx lint-staged

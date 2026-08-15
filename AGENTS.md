@@ -123,7 +123,9 @@ verify versions → publish `@gcszhn/mcp-sentinel-core`, then publish every plug
 version**, even if a package itself did not change. Each plugin pins
 `@gcszhn/mcp-sentinel-core` to that **exact** version (no `^`/`~` range). Release fails
 unless `packages/core`, every plugin, and each plugin's core dependency all
-match the tag exactly.
+match the tag exactly. The git pre-commit hook runs `scripts/verify-versions.ts`
+to reject a commit that breaks this invariant (unequal package versions, or a
+plugin pinning the core to a different version).
 
 **Monorepo layout.** `packages/core` publishes `@gcszhn/mcp-sentinel-core`;
 `packages/opencode` publishes `@gcszhn/mcp-sentinel-opencode-plugin`;
