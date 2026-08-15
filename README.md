@@ -8,9 +8,10 @@ This is a **monorepo**: a harness-agnostic core (`@gcszhn/mcp-sentinel-core`) pl
 
 Install instructions and per-harness details live in each plugin's own README.
 
-| Harness  | Plugin package                                                                                               | Docs                                  |
-| -------- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------- |
-| OpenCode | [`@gcszhn/mcp-sentinel-opencode-plugin`](https://www.npmjs.com/package/@gcszhn/mcp-sentinel-opencode-plugin) | [README](packages/opencode/README.md) |
+| Harness          | Plugin package                                                                                                               | Docs                                          |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| OpenCode         | [`@gcszhn/mcp-sentinel-opencode-plugin`](https://www.npmjs.com/package/@gcszhn/mcp-sentinel-opencode-plugin)                 | [README](packages/opencode/README.md)         |
+| DeepSeek Harness | [`@gcszhn/mcp-sentinel-deepseek-harness-plugin`](https://www.npmjs.com/package/@gcszhn/mcp-sentinel-deepseek-harness-plugin) | [README](packages/deepseek-harness/README.md) |
 
 The shared core ships separately as [`@gcszhn/mcp-sentinel-core`](https://www.npmjs.com/package/@gcszhn/mcp-sentinel-core) — see [its README](packages/core/README.md).
 

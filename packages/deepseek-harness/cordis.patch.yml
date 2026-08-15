@@ -1,0 +1,8 @@
+# DeepSeek Harness bundle layer for the MCP sentinel plugin.
+#
+# Applied as one insert over the profile root. Users override the plugin's
+# `servers` config in their profile `cordis.patch.yml` (later layers win per
+# row, and a patch replaces the row's whole `config` value).
+- insert:
+    - id: mcp-sentinel
+      name: '@gcszhn/mcp-sentinel-deepseek-harness-plugin'
