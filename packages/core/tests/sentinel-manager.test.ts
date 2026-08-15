@@ -5,9 +5,9 @@ import {
   getSentinelTask,
   getActiveSentinels,
   cleanup,
-  setNotifyFn,
-} from "../src/services/sentinel-manager.js";
-import { parseMcpConfig } from "../src/services/config-reader.js";
+  setNotifier,
+} from "../src/engine.js";
+import { makeServerResolver } from "../src/resolver.js";
 
 function withEnv(key: string, value: string | undefined): void {
   if (value === undefined) {
@@ -28,26 +28,19 @@ async function waitForStatus(id: string, expectedStatus: string, timeoutMs = 100
   throw new Error(`Task ${id} did not reach "${expectedStatus}" within ${timeoutMs}ms`);
 }
 
-function createMockClient() {
-  return {
-    session: {
-      promptAsync: async (_opts: unknown) => ({}),
-    },
-  } as any;
-}
-
 describe("sentinel-manager", () => {
   beforeEach(() => {
     cleanup();
-    setNotifyFn(createMockClient());
+    setNotifier(() => {});
   });
 
   afterEach(() => {
     cleanup();
+    setNotifier(null);
   });
 
   it("throws for unknown server", () => {
-    const config = parseMcpConfig({});
+    const config = { servers: {} };
     expect(
       startSentinel(
         {
@@ -57,15 +50,15 @@ describe("sentinel-manager", () => {
           until: { path: "a", is: "eq", value: 1 },
           sessionID: "s1",
         },
-        config
+        makeServerResolver(config)
       )
     ).rejects.toThrow("Unknown MCP server");
   });
 
   it("creates a task with valid config", () => {
-    const config = parseMcpConfig({
-      mcp: { test: { type: "remote", url: "http://localhost:9999" } },
-    });
+    const config = {
+      servers: { test: { type: "remote", url: "http://localhost:9999" } },
+    };
     expect(
       startSentinel(
         {
@@ -75,15 +68,15 @@ describe("sentinel-manager", () => {
           until: { path: "x", is: "eq", value: 1 },
           sessionID: "s1",
         },
-        config
+        makeServerResolver(config)
       )
     ).resolves.toBeDefined();
   });
 
   it("generates unique IDs", () => {
-    const config = parseMcpConfig({
-      mcp: { s1: { type: "remote", url: "http://localhost:1" } },
-    });
+    const config = {
+      servers: { s1: { type: "remote", url: "http://localhost:1" } },
+    };
     const p1 = startSentinel(
       {
         server: "s1",
@@ -92,7 +85,7 @@ describe("sentinel-manager", () => {
         until: { path: "x", is: "eq", value: 1 },
         sessionID: "s1",
       },
-      config
+      makeServerResolver(config)
     );
     const p2 = startSentinel(
       {
@@ -102,15 +95,15 @@ describe("sentinel-manager", () => {
         until: { path: "x", is: "eq", value: 1 },
         sessionID: "s1",
       },
-      config
+      makeServerResolver(config)
     );
     expect(p1).resolves.not.toEqual(p2);
   });
 
   it("getActiveSentinels returns active tasks", async () => {
-    const config = parseMcpConfig({
-      mcp: { a: { type: "remote", url: "http://localhost:2" } },
-    });
+    const config = {
+      servers: { a: { type: "remote", url: "http://localhost:2" } },
+    };
     const id = await startSentinel(
       {
         server: "a",
@@ -119,7 +112,7 @@ describe("sentinel-manager", () => {
         until: { path: "x", is: "eq", value: 1 },
         sessionID: "s1",
       },
-      config
+      makeServerResolver(config)
     );
     const tasks = getActiveSentinels();
     expect(tasks.length).toBeGreaterThanOrEqual(1);
@@ -127,9 +120,9 @@ describe("sentinel-manager", () => {
   });
 
   it("getSentinelTask returns task details", async () => {
-    const config = parseMcpConfig({
-      mcp: { b: { type: "remote", url: "http://localhost:3" } },
-    });
+    const config = {
+      servers: { b: { type: "remote", url: "http://localhost:3" } },
+    };
     const id = await startSentinel(
       {
         server: "b",
@@ -138,7 +131,7 @@ describe("sentinel-manager", () => {
         until: { path: "ok", is: "eq", value: true },
         sessionID: "s1",
       },
-      config
+      makeServerResolver(config)
     );
     const task = getSentinelTask(id);
     expect(task).toBeDefined();
@@ -149,9 +142,9 @@ describe("sentinel-manager", () => {
   });
 
   it("cancelSentinel cancels active task", async () => {
-    const config = parseMcpConfig({
-      mcp: { c: { type: "remote", url: "http://localhost:4" } },
-    });
+    const config = {
+      servers: { c: { type: "remote", url: "http://localhost:4" } },
+    };
     const id = await startSentinel(
       {
         server: "c",
@@ -160,7 +153,7 @@ describe("sentinel-manager", () => {
         until: { path: "x", is: "eq", value: 1 },
         sessionID: "s1",
       },
-      config
+      makeServerResolver(config)
     );
     const cancelled = cancelSentinel(id);
     expect(cancelled).toBe(true);
@@ -178,9 +171,9 @@ describe("sentinel-manager", () => {
   });
 
   it("respects custom interval and timeout", async () => {
-    const config = parseMcpConfig({
-      mcp: { d: { type: "remote", url: "http://localhost:5" } },
-    });
+    const config = {
+      servers: { d: { type: "remote", url: "http://localhost:5" } },
+    };
     const id = await startSentinel(
       {
         server: "d",
@@ -191,7 +184,7 @@ describe("sentinel-manager", () => {
         until: { path: "x", is: "eq", value: 1 },
         sessionID: "s1",
       },
-      config
+      makeServerResolver(config)
     );
     const task = getSentinelTask(id);
     expect(task!.request.interval).toBe(2000);
@@ -199,9 +192,9 @@ describe("sentinel-manager", () => {
   });
 
   it("cleanup removes all active tasks", async () => {
-    const config = parseMcpConfig({
-      mcp: { e: { type: "remote", url: "http://localhost:6" } },
-    });
+    const config = {
+      servers: { e: { type: "remote", url: "http://localhost:6" } },
+    };
     await startSentinel(
       {
         server: "e",
@@ -210,7 +203,7 @@ describe("sentinel-manager", () => {
         until: { path: "x", is: "eq", value: 1 },
         sessionID: "s1",
       },
-      config
+      makeServerResolver(config)
     );
     expect(getActiveSentinels().length).toBeGreaterThan(0);
     cleanup();
@@ -218,9 +211,9 @@ describe("sentinel-manager", () => {
   });
 
   it("cancelled sentinel has status 'cancelled' not 'completed'", async () => {
-    const config = parseMcpConfig({
-      mcp: { f: { type: "remote", url: "http://localhost:7" } },
-    });
+    const config = {
+      servers: { f: { type: "remote", url: "http://localhost:7" } },
+    };
     const id = await startSentinel(
       {
         server: "f",
@@ -229,7 +222,7 @@ describe("sentinel-manager", () => {
         until: { path: "x", is: "eq", value: 1 },
         sessionID: "s1",
       },
-      config
+      makeServerResolver(config)
     );
     cancelSentinel(id);
     const task = getSentinelTask(id);
@@ -238,9 +231,9 @@ describe("sentinel-manager", () => {
   });
 
   it("records MCP error with raw message for debugging", async () => {
-    const config = parseMcpConfig({
-      mcp: { bad: { type: "remote", url: "http://localhost:1" } },
-    });
+    const config = {
+      servers: { bad: { type: "remote", url: "http://localhost:1" } },
+    };
     const id = await startSentinel(
       {
         server: "bad",
@@ -249,7 +242,7 @@ describe("sentinel-manager", () => {
         until: { path: "x", is: "eq", value: 1 },
         sessionID: "s1",
       },
-      config
+      makeServerResolver(config)
     );
     await waitForStatus(id, "error");
     const task = getSentinelTask(id);
@@ -259,12 +252,35 @@ describe("sentinel-manager", () => {
     expect(task!.error!.length).toBeGreaterThan(10);
   });
 
+  it("invokes the notifier when a sentinel fails", async () => {
+    const events: Array<{ id: string; event: string }> = [];
+    setNotifier((task, event) => {
+      events.push({ id: task.id, event });
+    });
+
+    const config = {
+      servers: { failnotify: { type: "remote", url: "http://localhost:1" } },
+    };
+    const id = await startSentinel(
+      {
+        server: "failnotify",
+        tool: "test",
+        args: {},
+        until: { path: "x", is: "eq", value: 1 },
+        sessionID: "s1",
+      },
+      makeServerResolver(config)
+    );
+    await waitForStatus(id, "error");
+    expect(events.some((e) => e.id === id && e.event === "failed")).toBe(true);
+  });
+
   it("auto-cleans error task after TTL", async () => {
     withEnv("SENTINEL_TASK_TTL_MS", "50");
 
-    const config = parseMcpConfig({
-      mcp: { ttl1: { type: "remote", url: "http://localhost:1" } },
-    });
+    const config = {
+      servers: { ttl1: { type: "remote", url: "http://localhost:1" } },
+    };
     const id = await startSentinel(
       {
         server: "ttl1",
@@ -273,7 +289,7 @@ describe("sentinel-manager", () => {
         until: { path: "x", is: "eq", value: 1 },
         sessionID: "s1",
       },
-      config
+      makeServerResolver(config)
     );
     await waitForStatus(id, "error");
     // wait for TTL to fire
@@ -286,9 +302,9 @@ describe("sentinel-manager", () => {
   it("auto-cleans cancelled task after TTL", async () => {
     withEnv("SENTINEL_TASK_TTL_MS", "50");
 
-    const config = parseMcpConfig({
-      mcp: { ttl2: { type: "remote", url: "http://localhost:2" } },
-    });
+    const config = {
+      servers: { ttl2: { type: "remote", url: "http://localhost:2" } },
+    };
     const id = await startSentinel(
       {
         server: "ttl2",
@@ -297,7 +313,7 @@ describe("sentinel-manager", () => {
         until: { path: "x", is: "eq", value: 1 },
         sessionID: "s1",
       },
-      config
+      makeServerResolver(config)
     );
     cancelSentinel(id);
     // wait for TTL
@@ -308,9 +324,9 @@ describe("sentinel-manager", () => {
   });
 
   it("does not auto-clean when TTL is unset", async () => {
-    const config = parseMcpConfig({
-      mcp: { nottl: { type: "remote", url: "http://localhost:3" } },
-    });
+    const config = {
+      servers: { nottl: { type: "remote", url: "http://localhost:3" } },
+    };
     const id = await startSentinel(
       {
         server: "nottl",
@@ -319,7 +335,7 @@ describe("sentinel-manager", () => {
         until: { path: "x", is: "eq", value: 1 },
         sessionID: "s1",
       },
-      config
+      makeServerResolver(config)
     );
     await waitForStatus(id, "error");
     // should still be there after a delay

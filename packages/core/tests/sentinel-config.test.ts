@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { getMaxPollLog, getTaskTtlMs } from "../src/services/sentinel-config.js";
+import { getMaxPollLog, getTaskTtlMs } from "../src/env.js";
 
 function withEnv(key: string, value: string | undefined, fn: () => void): void {
   const old = process.env[key];

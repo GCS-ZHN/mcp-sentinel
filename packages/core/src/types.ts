@@ -1,5 +1,5 @@
 /**
- * Shared type definitions for the opencode-mcp-sentinel plugin.
+ * Shared type definitions for the harness-agnostic sentinel core.
  *
  * ## Condition types
  * Conditions form a recursive algebraic data type used by
@@ -8,8 +8,9 @@
  * (e.g. `"tasks[0].exit_code"`).
  *
  * ## MCP server config
- * opencode stores MCP servers as flat keys: `mcp.{name}.{type,command,url}`.
- * {@link McpServerConfig} is a discriminated union on `type`.
+ * {@link McpServerConfig} is a discriminated union on `type`. Each host
+ * normalizes its own config source (OpenCode's flat `mcp.{name}.*` keys, a
+ * Codex `.mcp.json`, …) into this uniform shape.
  *
  * @module
  */
@@ -73,7 +74,7 @@ export type SentinelCondition = SimpleCondition | NotCondition | AndCondition | 
  * Describes a polling task submitted by the agent via `mcp_sentinel_poll`.
  */
 export interface SentinelRequest {
-  /** MCP server name (from opencode config's `mcp` block). */
+  /** MCP server name, resolved by the host's {@link ServerResolver}. */
   server: string;
   /** Tool name to invoke on each poll. */
   tool: string;
@@ -85,8 +86,12 @@ export interface SentinelRequest {
   timeout?: number;
   /** Termination condition evaluated on each poll result. */
   until: SentinelCondition;
-  /** Agent session ID for delivering the completion notification. */
-  sessionID: string;
+  /**
+   * Agent session ID for delivering the completion notification. Populated by
+   * the host adapter (e.g. OpenCode's `ctx.sessionID`); omitted by adapters
+   * that have no push-notification channel.
+   */
+  sessionID?: string;
 }
 
 /**
@@ -128,6 +133,8 @@ export interface McpLocalConfig {
   type: "local";
   /** Executable and arguments for the subprocess. */
   command: string[];
+  /** Working directory for the spawned subprocess. */
+  cwd?: string;
   /** Additional environment variables to pass to the subprocess. */
   env?: Record<string, string>;
   /** When `false`, the server is excluded from lookups. */
@@ -152,11 +159,17 @@ export interface McpRemoteConfig {
 /** Discriminated union of local and remote MCP server configs. */
 export type McpServerConfig = McpLocalConfig | McpRemoteConfig;
 
-/**
- * Parsed result of `mcp.{name}` from opencode's configuration.
- *
- * @see {@link parseMcpConfig}
- */
+/** A name → server-config map. Built by the harness from its own config source. */
 export interface McpConfig {
   servers: Record<string, McpServerConfig>;
 }
+
+/**
+ * Resolve a target MCP server by name, or `null` when unknown/disabled.
+ *
+ * This is the uniform seam between the harness-agnostic core and each harness:
+ * the core asks for a server by name and the harness answers from its own
+ * config source (OpenCode `client.config.get()`, Codex `config.toml` +
+ * `.mcp.json`, …).
+ */
+export type ServerResolver = (name: string) => McpServerConfig | null;

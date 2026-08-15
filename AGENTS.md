@@ -7,12 +7,22 @@
 - Pushing to remote and creating releases/tags requires explicit user authorization.
 - **Code must be reviewed and approved before asking about git operations.** Don't preemptively ask for commit/push — wait for user to confirm the changes look good.
 
+## Harness plugin development
+
+- A **new harness plugin** (`packages/<harness>`) is developed in its **own git
+  worktree**, never directly on the main repo's working branch. Each harness
+  plugin is independently publishable (`@gcszhn/mcp-sentinel-<harness>-plugin`), so its
+  branch, review, and release lifecycle stays isolated from the core and from
+  other harnesses.
+- The shared core (`packages/core`) and existing harnesses are developed in the
+  main repo.
+
 ## Commands
 
 ```bash
 bun run typecheck          # tsc --noEmit
 bun run build              # rm -rf dist && bunx tsc
-bun test                   # bun test (69 tests)
+bun test                   # bun test (73 tests)
 bun run format             # prettier --write
 ```
 
@@ -34,9 +44,9 @@ pty_spawn command=bash args=["-c","export ENV=VALUE && opencode run '...' --dir 
 
 Set `notifyOnExit=true` and wait for `<pty_exited>` — do NOT poll `pty_read` in a sleep loop.
 
-The repo's `.opencode/opencode.jsonc` loads the plugin from source (`{env:PWD}/src/plugin.ts`) and includes a `mock-ci` MCP server for testing.
+The repo's `.opencode/opencode.jsonc` loads the plugin from source (`{env:PWD}/packages/opencode/src/plugin.ts`) and includes a `mock-ci` MCP server for testing.
 
-### Mock MCP server (`tests/mock-mcp-server.ts`)
+### Mock MCP server (`packages/core/tests/mock-mcp-server.ts`)
 
 Self-contained stdio server with `submit_job` and `get_job_status`. State advances globally per poll: 8 stages, 2 polls each → ~17 polls to reach `status=completed`. `{env:PWD}` paths work in opencode MCP config.
 
@@ -84,14 +94,27 @@ NOT `mcp.servers.{name}`. `type` is `"local"` or `"remote"`. `local.command` is 
 ## Release
 
 ```bash
-# 1. Update version in package.json
+# 1. Bump every package to the SAME version (lockstep):
+#      packages/core/package.json
+#      packages/opencode/package.json  (+ its `@gcszhn/mcp-sentinel-core` dep, pinned to the same version)
 # 2. Commit, tag, push
 git tag vX.Y.Z && git push origin main vX.Y.Z
 ```
 
-Tag push triggers `.github/workflows/release.yml` (typecheck → build → test → version verify → npm publish → GitHub release). Version in `package.json` must match the tag exactly.
+Tag push triggers `.github/workflows/release.yml` (typecheck → build → test →
+verify versions → publish `@gcszhn/mcp-sentinel-core` then `@gcszhn/mcp-sentinel-opencode-plugin`
+→ GitHub release).
 
 **No hardcoded version strings.** The MCP client info (`name`/`version`) is imported from `package.json` with `{ type: "json" }` at compile time. Updating `package.json` version is the only required change for a release.
+
+**Lockstep versioning.** Every package in the monorepo carries the **same
+version**, even if a package itself did not change. The OpenCode plugin pins
+`@gcszhn/mcp-sentinel-core` to that **exact** version (no `^`/`~` range). Release fails
+unless `packages/core`, `packages/opencode`, and the plugin's core dependency
+all match the tag exactly.
+
+**Monorepo layout.** `packages/core` publishes `@gcszhn/mcp-sentinel-core`;
+`packages/opencode` publishes `@gcszhn/mcp-sentinel-opencode-plugin`.
 
 ## Tool development standards
 

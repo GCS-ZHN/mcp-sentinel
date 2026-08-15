@@ -28,17 +28,32 @@ jobs:
       - run: bun run build
       - run: bun test
 
-      - name: Verify version matches tag
+      - name: Verify versions match tag (lockstep)
         run: |
-          PKG_VER="v$(node -e "console.log(require('./package.json').version)")"
           TAG="${{ github.ref_name }}"
-          if [ "$PKG_VER" != "$TAG" ]; then
-            echo "Package version $PKG_VER != tag $TAG"
+          for pkg in packages/core packages/opencode; do
+            PKG_VER="v$(node -e "console.log(require('./$pkg/package.json').version)")"
+            if [ "$PKG_VER" != "$TAG" ]; then
+              echo "$pkg version $PKG_VER != tag $TAG"
+              exit 1
+            fi
+          done
+          CORE_VER="$(node -e "console.log(require('./packages/core/package.json').version)")"
+          PLUGIN_CORE_DEP="$(node -e "console.log(require('./packages/opencode/package.json').dependencies['@gcszhn/mcp-sentinel-core'])")"
+          if [ "$PLUGIN_CORE_DEP" != "$CORE_VER" ]; then
+            echo "packages/opencode depends on @gcszhn/mcp-sentinel-core@$PLUGIN_CORE_DEP, expected $CORE_VER"
             exit 1
           fi
 
-      - name: Publish to npm
+      - name: Publish @gcszhn/mcp-sentinel-core
         run: npm publish --provenance --access public
+        working-directory: packages/core
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish @gcszhn/mcp-sentinel-opencode-plugin
+        run: npm publish --provenance --access public
+        working-directory: packages/opencode
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 

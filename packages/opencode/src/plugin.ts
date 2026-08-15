@@ -5,7 +5,7 @@
  * Imports the plugin factory from `index.js` and re-exports it with the
  * `id` from `package.json`. The `{ type: "json" }` import attribute also
  * inlines `version` at compile time (used for MCP client identification
- * in `mcp-connection-manager.ts`), ensuring no hardcoded version strings
+ * in `core/connection-pool.ts`), ensuring no hardcoded version strings
  * exist anywhere.
  *
  * @module
@@ -17,7 +17,7 @@ import pkg from "../package.json" with { type: "json" };
 const { OpenCodeSentinelPlugin } = await import("./index.js");
 
 /** Plugin identifier, derived from `package.json#name`. */
-export const id = pkg.name?.trim() || "opencode-mcp-sentinel";
+export const id = pkg.name?.trim() || "@gcszhn/mcp-sentinel-opencode-plugin";
 
 /**
  * Re-exported plugin factory.

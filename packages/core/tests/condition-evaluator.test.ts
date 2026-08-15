@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
-import { evaluateCondition } from "../src/services/condition-evaluator.js";
-import type { SentinelCondition } from "../src/services/types.js";
+import { evaluateCondition } from "../src/condition.js";
+import type { SentinelCondition } from "../src/types.js";
 
 describe("condition-evaluator", () => {
   describe("resolvePath", () => {

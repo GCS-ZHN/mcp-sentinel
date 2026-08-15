@@ -1,12 +1,13 @@
 import { describe, it, expect, beforeAll, afterAll } from "bun:test";
+import { join } from "node:path";
 import {
   getOrCreateClient,
   callTool,
   disconnectAll,
   isConnectionError,
   getConnectionCount,
-} from "../src/services/mcp-connection-manager.js";
-import type { McpRemoteConfig } from "../src/services/types.js";
+} from "../src/connection-pool.js";
+import type { McpRemoteConfig } from "../src/types.js";
 
 const HTTP_PORT = 19879;
 const HTTP_URL = `http://localhost:${HTTP_PORT}/mcp`;
@@ -14,7 +15,8 @@ const config: McpRemoteConfig = { type: "remote", url: HTTP_URL };
 
 // Global server lifecycle — all test suites share one mock HTTP server
 beforeAll(async () => {
-  const proc = Bun.spawn(["bun", "tests/mock-mcp-server.ts", "--transport=http"], {
+  const mockServer = join(import.meta.dir, "mock-mcp-server.ts");
+  const proc = Bun.spawn(["bun", mockServer, "--transport=http"], {
     stdout: "inherit",
     stderr: "inherit",
   });
