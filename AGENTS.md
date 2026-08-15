@@ -137,6 +137,12 @@ match the tag exactly.
 - **Never blindly try/catch** unless you have a specific recovery strategy. Let exceptions propagate so they become visible. The only acceptable silent catch is for truly non-fatal side effects (e.g., prompt notification failure).
 - **Be strict about parameter validation.** Loose validation leads to mysterious failures that the agent can't diagnose. Validate types, shapes, and constraints upfront and return explicit `"Error: ..."` messages.
 - **When the MCP server rejects arguments, pass the raw error through verbatim** — field names, error codes, and all. Don't wrap or rewrite it.
+- **Never leak `undefined` from a missing array index / object key.** Reading a
+  non-existent array element or object property must throw a clear error (which
+  surfaces as the sentinel's `error` status) — never silently yield `undefined`
+  and poll forever. A typo'd path or out-of-range index is a misconfiguration
+  the agent must learn about immediately. Code review must flag any silent
+  `undefined`/`null` propagation as a finding.
 
 ### Input validation
 
