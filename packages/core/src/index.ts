@@ -11,6 +11,7 @@ export * from "./engine.js";
 export * from "./tools.js";
 export * from "./condition.js";
 export * from "./connection-pool.js";
+export * from "./descriptions.js";
 export * from "./env.js";
 export * from "./logger.js";
 export * from "./resolver.js";

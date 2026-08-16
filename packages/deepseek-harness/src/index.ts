@@ -22,6 +22,24 @@ import type { Agent } from "@deepseek-ai/dsh-agent";
 import { CallId, createUserMessage } from "@deepseek-ai/dsh-llm";
 import { SessionId } from "@deepseek-ai/dsh-session";
 import {
+  ACTION_DESCRIPTION,
+  ARGS_DESCRIPTION,
+  ATTACH_ID_DESCRIPTION,
+  ATTACH_TIMEOUT_DESCRIPTION,
+  ATTACH_TOOL_DESCRIPTION,
+  COMPLETION_NOTIFICATION_NOTE,
+  INTERVAL_DESCRIPTION,
+  POLL_TIMEOUT_DESCRIPTION,
+  POLL_TOOL_DESCRIPTION,
+  READ_ID_DESCRIPTION,
+  READ_LIMIT_DESCRIPTION,
+  READ_OFFSET_DESCRIPTION,
+  READ_TOOL_DESCRIPTION,
+  SERVER_DESCRIPTION,
+  STATUS_ID_DESCRIPTION,
+  STATUS_TOOL_DESCRIPTION,
+  TOOL_DESCRIPTION,
+  UNTIL_DESCRIPTION,
   cleanup,
   disconnectAll,
   handleAttach,
@@ -114,43 +132,6 @@ ${JSON.stringify(task.lastResult, null, 2)}
   }
 }
 
-const POLL_DESCRIPTION = `Submit a long-running MCP tool call and poll it at regular intervals until a condition is met. The sentinel polls silently (zero token cost) and the agent collects the result with sentinel_attach / sentinel_status / sentinel_read.
-
-Parameters:
-- server: MCP server name — the serverName of a @deepseek-ai/dsh-mcp-client instance
-- tool: Tool name to call on the server
-- args: Arguments for the tool (JSON string, default: "{}")
-- interval: Poll interval in ms (min 1000, default: 5000)
-- timeout: Max poll duration in ms (optional, polls until condition met if unset)
-- until: Condition object to wait for
-
-Condition model:
-{ "path": "field", "is": "eq"|"ne"|"gt"|"gte"|"lt"|"lte"|"contains"|"match", "value": any }
-{ "not": <condition> }
-{ "and": [<condition>, ...] }
-{ "or": [<condition>, ...] }
-
-Path uses dot notation with optional array indices: "status", "tasks[0].exit_code".`;
-
-const STATUS_DESCRIPTION = `Check the status of sentinel tasks, list active tasks, or cancel a running task.
-
-Actions:
-- "status": Get details of a specific sentinel (requires id)
-- "list": List all active sentinel tasks
-- "cancel": Cancel a running sentinel (requires id)`;
-
-const ATTACH_DESCRIPTION = `Block the agent, waiting for a sentinel task to complete. Use this when you want to pause until the result is ready, instead of checking sentinel_status repeatedly.
-
-The tool sleeps and checks the status internally (no token cost during wait).
-
-Parameters:
-- id: The sentinel ID to wait for
-- timeout: Max wait time in ms (optional, waits indefinitely if unset)`;
-
-const READ_DESCRIPTION = `Read raw poll outputs from a sentinel task. Useful for debugging when a condition isn't matching — inspect actual MCP responses.
-
-Works whether the sentinel is running, completed, cancelled, or errored.`;
-
 /**
  * DeepSeek Harness plugin entry point.
  *
@@ -237,38 +218,40 @@ export function apply(ctx: Context): void {
     return extractToolResult(result);
   };
 
+  // doc: https://deepseek-harness.github.io/deepseek-harness/en/reference/subsystems/tools#the-unified-json-value-schema-dsl
   ctx.tools.register(
     defineTool({
       name: "mcp_sentinel_poll",
-      description: POLL_DESCRIPTION,
+      description: `${POLL_TOOL_DESCRIPTION}
+
+${COMPLETION_NOTIFICATION_NOTE}`,
       parameters: {
         server: {
           type: "string",
           required: true,
-          description: "MCP server name — the serverName of a @deepseek-ai/dsh-mcp-client instance",
+          description: SERVER_DESCRIPTION,
         },
         tool: {
           type: "string",
           required: true,
-          description: "Name of the tool to call on the MCP server",
+          description: TOOL_DESCRIPTION,
         },
         args: {
-          type: "string",
-          description: 'Arguments for the tool as a JSON string (default: "{}")',
+          type: "json",
+          description: ARGS_DESCRIPTION,
         },
         interval: {
           type: "number",
-          description: "Poll interval in milliseconds (default: 5000)",
+          description: INTERVAL_DESCRIPTION,
         },
         timeout: {
           type: "number",
-          description: "Maximum poll duration in milliseconds (0 or unset = no limit)",
+          description: POLL_TIMEOUT_DESCRIPTION,
         },
         until: {
-          type: "string",
+          type: "json",
           required: true,
-          description:
-            'Condition as a JSON string, e.g. \'{"path":"status","is":"eq","value":"completed"}\'',
+          description: UNTIL_DESCRIPTION,
         },
       },
       output: textOutput,
@@ -279,29 +262,8 @@ export function apply(ctx: Context): void {
           );
         }
 
-        let toolArgs: Record<string, unknown> = {};
-        if (args.args) {
-          try {
-            const parsed: unknown = JSON.parse(args.args);
-            if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-              return "Error: args must be a JSON object.";
-            }
-            toolArgs = parsed as Record<string, unknown>;
-          } catch {
-            return "Error: Invalid JSON for args parameter.";
-          }
-        }
-
-        let until: SentinelCondition;
-        try {
-          const parsed: unknown = JSON.parse(args.until);
-          if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-            return "Error: until must be a JSON object describing a condition.";
-          }
-          until = parsed as SentinelCondition;
-        } catch {
-          return "Error: Invalid JSON for until parameter. Must be a valid JSON object.";
-        }
+        const toolArgs = (args.args ?? {}) as Record<string, unknown>;
+        const until = args.until as unknown as SentinelCondition;
 
         return handlePoll(
           {
@@ -322,16 +284,16 @@ export function apply(ctx: Context): void {
   ctx.tools.register(
     defineTool({
       name: "mcp_sentinel_status",
-      description: STATUS_DESCRIPTION,
+      description: STATUS_TOOL_DESCRIPTION,
       parameters: {
         action: {
           type: "string",
           enum: ["status", "list", "cancel"],
-          description: "Action: status of a sentinel, list active tasks, or cancel a task",
+          description: ACTION_DESCRIPTION,
         },
         id: {
           type: "string",
-          description: "Sentinel ID (required for status and cancel)",
+          description: STATUS_ID_DESCRIPTION,
         },
       },
       output: textOutput,
@@ -344,16 +306,16 @@ export function apply(ctx: Context): void {
   ctx.tools.register(
     defineTool({
       name: "mcp_sentinel_attach",
-      description: ATTACH_DESCRIPTION,
+      description: ATTACH_TOOL_DESCRIPTION,
       parameters: {
         id: {
           type: "string",
           required: true,
-          description: "The sentinel ID to wait for",
+          description: ATTACH_ID_DESCRIPTION,
         },
         timeout: {
           type: "number",
-          description: "Maximum wait time in milliseconds (0 or unset = no limit)",
+          description: ATTACH_TIMEOUT_DESCRIPTION,
         },
       },
       output: textOutput,
@@ -366,20 +328,20 @@ export function apply(ctx: Context): void {
   ctx.tools.register(
     defineTool({
       name: "mcp_sentinel_read",
-      description: READ_DESCRIPTION,
+      description: READ_TOOL_DESCRIPTION,
       parameters: {
         id: {
           type: "string",
           required: true,
-          description: "The sentinel ID to read outputs from",
+          description: READ_ID_DESCRIPTION,
         },
         offset: {
           type: "number",
-          description: "0-based start index (default: from end, giving the last N polls)",
+          description: READ_OFFSET_DESCRIPTION,
         },
         limit: {
           type: "number",
-          description: "Max number of outputs (default: 5)",
+          description: READ_LIMIT_DESCRIPTION,
         },
       },
       output: textOutput,

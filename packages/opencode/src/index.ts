@@ -16,6 +16,24 @@ import type { PluginInput, Hooks } from "@opencode-ai/plugin";
 import type { OpencodeClient } from "@opencode-ai/sdk";
 import { parseOpencodeMcpConfig } from "./config.js";
 import {
+  ACTION_DESCRIPTION,
+  ARGS_DESCRIPTION,
+  ATTACH_ID_DESCRIPTION,
+  ATTACH_TIMEOUT_DESCRIPTION,
+  ATTACH_TOOL_DESCRIPTION,
+  COMPLETION_NOTIFICATION_NOTE,
+  INTERVAL_DESCRIPTION,
+  POLL_TIMEOUT_DESCRIPTION,
+  POLL_TOOL_DESCRIPTION,
+  READ_ID_DESCRIPTION,
+  READ_LIMIT_DESCRIPTION,
+  READ_OFFSET_DESCRIPTION,
+  READ_TOOL_DESCRIPTION,
+  SERVER_DESCRIPTION,
+  STATUS_ID_DESCRIPTION,
+  STATUS_TOOL_DESCRIPTION,
+  TOOL_DESCRIPTION,
+  UNTIL_DESCRIPTION,
   cleanup,
   disconnectAll,
   handleAttach,
@@ -83,83 +101,29 @@ const opencodeNotifier: SentinelNotifier = async (task, event) => {
  * regular intervals until a condition is met.
  */
 const sentinelPollTool = tool({
-  description: `Submit a long-running MCP tool call and poll it at regular intervals until a condition is met. The sentinel polls silently (zero token cost) and notifies you when done.
+  description: `${POLL_TOOL_DESCRIPTION}
 
-Parameters:
-- server: MCP server name (from opencode config)
-- tool: Tool name to call on the server
-- args: Arguments for the tool (JSON object, default: {})
-- interval: Poll interval in ms (min 1000, default: 5000)
-- timeout: Max poll duration in ms (optional, polls until condition met if unset)
-- until: Condition object to wait for
-
-Condition model:
-{ "path": "field", "is": "eq"|"ne"|"gt"|"gte"|"lt"|"lte"|"contains"|"match", "value": any }
-{ "not": <condition> }
-{ "and": [<condition>, ...] }
-{ "or": [<condition>, ...] }
-
-Path uses dot notation with optional array indices: "status", "tasks[0].exit_code"
-
-You will receive a prompt notification with the result when done. Use sentinel_status to check/cancel.`,
+${COMPLETION_NOTIFICATION_NOTE}`,
   args: {
-    server: tool.schema.string().describe("Name of the MCP server (from opencode config)"),
-    tool: tool.schema.string().describe("Name of the tool to call on the MCP server"),
-    args: tool.schema
-      .string()
-      .optional()
-      .describe("Arguments for the tool as a JSON string (default: '{}')"),
-    interval: tool.schema
-      .number()
-      .int()
-      .min(1000)
-      .optional()
-      .describe("Poll interval in milliseconds (default: 5000)"),
-    timeout: tool.schema
-      .number()
-      .int()
-      .min(0)
-      .optional()
-      .describe("Maximum poll duration in milliseconds (0 or unset = no limit)"),
-    until: tool.schema
-      .string()
-      .describe(
-        'Condition as a JSON string, e.g. \'{"path":"status","is":"eq","value":"completed"}\''
-      ),
+    server: tool.schema.string().describe(SERVER_DESCRIPTION),
+    tool: tool.schema.string().describe(TOOL_DESCRIPTION),
+    args: tool.schema.json().optional().describe(ARGS_DESCRIPTION),
+    interval: tool.schema.number().int().min(1000).optional().describe(INTERVAL_DESCRIPTION),
+    timeout: tool.schema.number().int().min(0).optional().describe(POLL_TIMEOUT_DESCRIPTION),
+    until: tool.schema.json().describe(UNTIL_DESCRIPTION),
   },
   async execute(args, ctx) {
     if (!_client) {
       return "Error: Plugin client not initialized.";
     }
 
-    let toolArgs: Record<string, unknown> = {};
-    if (args.args) {
-      try {
-        toolArgs = JSON.parse(args.args);
-      } catch {
-        return "Error: Invalid JSON for args parameter.";
-      }
-    }
-
-    let until: SentinelCondition;
-    try {
-      const parsed = JSON.parse(args.until);
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-        return "Error: until must be a JSON object describing a condition.";
-      }
-      until = parsed as SentinelCondition;
-    } catch {
-      return "Error: Invalid JSON for until parameter. Must be a valid JSON object.";
-    }
-
-    if (!args.server.trim() || !args.tool.trim()) {
-      return "Error: server and tool must be non-empty strings.";
-    }
+    const toolArgs = (args.args ?? {}) as Record<string, unknown>;
+    const until = args.until as unknown as SentinelCondition;
 
     const configResult = await _client.config.get();
     const rawConfig = configResult.data ?? {};
     const resolveServer = makeServerResolver(parseOpencodeMcpConfig(rawConfig));
-    if (!resolveServer(args.server)) {
+    if (args.server.trim() && !resolveServer(args.server)) {
       return `Error: Unknown MCP server: ${args.server}`;
     }
     const invoke = makeConnectionInvoker(resolveServer);
@@ -184,18 +148,10 @@ You will receive a prompt notification with the result when done. Use sentinel_s
  * tasks, or cancel a running task.
  */
 const sentinelStatusTool = tool({
-  description: `Check the status of sentinel tasks, list active tasks, or cancel a running task.
-
-Actions:
-- "status": Get details of a specific sentinel (requires id)
-- "list": List all active sentinel tasks
-- "cancel": Cancel a running sentinel (requires id)`,
+  description: STATUS_TOOL_DESCRIPTION,
   args: {
-    action: tool.schema
-      .enum(["status", "list", "cancel"])
-      .optional()
-      .describe("Action: status of a sentinel, list active tasks, or cancel a task"),
-    id: tool.schema.string().optional().describe("Sentinel ID (required for status and cancel)"),
+    action: tool.schema.enum(["status", "list", "cancel"]).optional().describe(ACTION_DESCRIPTION),
+    id: tool.schema.string().optional().describe(STATUS_ID_DESCRIPTION),
   },
   async execute(args) {
     return handleStatus(args.action, args.id);
@@ -207,21 +163,10 @@ Actions:
  * complete.
  */
 const sentinelAttachTool = tool({
-  description: `Block the agent, waiting for a sentinel task to complete. Use this when you want to pause until the result is ready, instead of checking sentinel_status repeatedly.
-
-The tool sleeps and checks the status internally (no token cost during wait). If the user cancels execution, the background async notification still fires normally.
-
-Parameters:
-- id: The sentinel ID to wait for
-- timeout: Max wait time in ms (optional, waits indefinitely if unset)`,
+  description: ATTACH_TOOL_DESCRIPTION,
   args: {
-    id: tool.schema.string().describe("The sentinel ID to wait for"),
-    timeout: tool.schema
-      .number()
-      .int()
-      .min(0)
-      .optional()
-      .describe("Maximum wait time in milliseconds (0 or unset = no limit)"),
+    id: tool.schema.string().describe(ATTACH_ID_DESCRIPTION),
+    timeout: tool.schema.number().int().min(0).optional().describe(ATTACH_TIMEOUT_DESCRIPTION),
   },
   async execute(args, ctx) {
     return handleAttach(args.id, args.timeout, () => ctx.abort.aborted);
@@ -232,23 +177,11 @@ Parameters:
  * `mcp_sentinel_read` — read raw poll outputs from a sentinel task.
  */
 const sentinelReadTool = tool({
-  description: `Read raw poll outputs from a sentinel task. Useful for debugging when a condition isn't matching — inspect actual MCP responses.
-
-Works whether the sentinel is running, completed, cancelled, or errored.`,
+  description: READ_TOOL_DESCRIPTION,
   args: {
-    id: tool.schema.string().describe("The sentinel ID to read outputs from"),
-    offset: tool.schema
-      .number()
-      .int()
-      .min(0)
-      .optional()
-      .describe("0-based start index (default: from end, giving the last N polls)"),
-    limit: tool.schema
-      .number()
-      .int()
-      .min(1)
-      .optional()
-      .describe("Max number of outputs (default: 5)"),
+    id: tool.schema.string().describe(READ_ID_DESCRIPTION),
+    offset: tool.schema.number().int().min(0).optional().describe(READ_OFFSET_DESCRIPTION),
+    limit: tool.schema.number().int().min(1).optional().describe(READ_LIMIT_DESCRIPTION),
   },
   async execute(args) {
     return handleRead(args.id, args.offset, args.limit);

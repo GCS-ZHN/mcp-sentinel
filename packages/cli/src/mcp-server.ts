@@ -18,6 +18,23 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod/v4";
 import {
+  ACTION_DESCRIPTION,
+  ARGS_DESCRIPTION,
+  ATTACH_ID_DESCRIPTION,
+  ATTACH_TIMEOUT_DESCRIPTION,
+  ATTACH_TOOL_DESCRIPTION,
+  INTERVAL_DESCRIPTION,
+  POLL_TIMEOUT_DESCRIPTION,
+  POLL_TOOL_DESCRIPTION,
+  READ_ID_DESCRIPTION,
+  READ_LIMIT_DESCRIPTION,
+  READ_OFFSET_DESCRIPTION,
+  READ_TOOL_DESCRIPTION,
+  SERVER_DESCRIPTION,
+  STATUS_ID_DESCRIPTION,
+  STATUS_TOOL_DESCRIPTION,
+  TOOL_DESCRIPTION,
+  UNTIL_DESCRIPTION,
   cleanup,
   disconnectAll,
   handleAttach,
@@ -32,49 +49,6 @@ import {
 } from "@gcszhn/mcp-sentinel-core";
 import type { McpConfig, SentinelCondition } from "@gcszhn/mcp-sentinel-core";
 import pkg from "../package.json" with { type: "json" };
-
-const POLL_DESCRIPTION = [
-  "Submit a long-running MCP tool call and poll it at regular intervals until a condition is met. The sentinel polls silently (zero token cost) and you collect the result via mcp_sentinel_status, mcp_sentinel_attach, or mcp_sentinel_read.",
-  "",
-  "Parameters:",
-  "- server: MCP server name (from the harness MCP config)",
-  "- tool: Tool name to call on the server",
-  "- args: Arguments for the tool (JSON object, default: {})",
-  "- interval: Poll interval in ms (min 1000, default: 5000)",
-  "- timeout: Max poll duration in ms (optional, polls until condition met if unset)",
-  "- until: Condition object to wait for",
-  "",
-  "Condition model:",
-  '{ "path": "field", "is": "eq"|"ne"|"gt"|"gte"|"lt"|"lte"|"contains"|"match", "value": any }',
-  '{ "not": <condition> }',
-  '{ "and": [<condition>, ...] }',
-  '{ "or": [<condition>, ...] }',
-  "",
-  'Path uses dot notation with optional array indices: "status", "tasks[0].exit_code"',
-].join("\n");
-
-const STATUS_DESCRIPTION = [
-  "Check the status of sentinel tasks, list active tasks, or cancel a running task.",
-  "",
-  "Actions:",
-  '- "status": Get details of a specific sentinel (requires id)',
-  '- "list": List all active sentinel tasks',
-  '- "cancel": Cancel a running sentinel (requires id)',
-].join("\n");
-
-const ATTACH_DESCRIPTION = [
-  "Wait for a sentinel task to complete. Use this when you want to block until the result is ready.",
-  "",
-  "Parameters:",
-  "- id: The sentinel ID to wait for",
-  "- timeout: Max wait time in ms (optional, waits indefinitely if unset)",
-].join("\n");
-
-const READ_DESCRIPTION = [
-  "Read raw poll outputs from a sentinel task. Useful for debugging when a condition isn't matching — inspect actual MCP responses.",
-  "",
-  "Works whether the sentinel is running, completed, cancelled, or errored.",
-].join("\n");
 
 /**
  * Start the sentinel stdio MCP server against the given MCP config.
@@ -107,38 +81,18 @@ export async function startMcpServer(mcpConfig: McpConfig): Promise<void> {
   server.registerTool(
     "mcp_sentinel_poll",
     {
-      description: POLL_DESCRIPTION,
+      description: POLL_TOOL_DESCRIPTION,
       inputSchema: {
-        server: z.string().describe("Name of the MCP server (from the harness MCP config)"),
-        tool: z.string().describe("Name of the tool to call on the MCP server"),
-        args: z
-          .record(z.string(), z.unknown())
-          .optional()
-          .describe("Arguments for the tool (JSON object, default: {})"),
-        interval: z
-          .number()
-          .int()
-          .min(1000)
-          .optional()
-          .describe("Poll interval in milliseconds (default: 5000)"),
-        timeout: z
-          .number()
-          .int()
-          .min(0)
-          .optional()
-          .describe("Maximum poll duration in milliseconds (0 or unset = no limit)"),
-        until: z.unknown().describe("Condition object to wait for"),
+        server: z.string().describe(SERVER_DESCRIPTION),
+        tool: z.string().describe(TOOL_DESCRIPTION),
+        args: z.json().optional().describe(ARGS_DESCRIPTION),
+        interval: z.number().int().min(1000).optional().describe(INTERVAL_DESCRIPTION),
+        timeout: z.number().int().min(0).optional().describe(POLL_TIMEOUT_DESCRIPTION),
+        until: z.json().describe(UNTIL_DESCRIPTION),
       },
     },
     async (args) => {
-      if (!args.server.trim() || !args.tool.trim()) {
-        return {
-          content: [
-            { type: "text" as const, text: "Error: server and tool must be non-empty strings." },
-          ],
-        };
-      }
-      if (!resolveServer(args.server)) {
+      if (args.server.trim() && !resolveServer(args.server)) {
         return {
           content: [{ type: "text" as const, text: `Error: Unknown MCP server: ${args.server}` }],
         };
@@ -147,10 +101,10 @@ export async function startMcpServer(mcpConfig: McpConfig): Promise<void> {
         {
           server: args.server,
           tool: args.tool,
-          args: args.args ?? {},
+          args: (args.args ?? {}) as Record<string, unknown>,
           interval: args.interval,
           timeout: args.timeout,
-          until: args.until as SentinelCondition,
+          until: args.until as unknown as SentinelCondition,
         },
         invoke
       );
@@ -161,13 +115,10 @@ export async function startMcpServer(mcpConfig: McpConfig): Promise<void> {
   server.registerTool(
     "mcp_sentinel_status",
     {
-      description: STATUS_DESCRIPTION,
+      description: STATUS_TOOL_DESCRIPTION,
       inputSchema: {
-        action: z
-          .enum(["status", "list", "cancel"])
-          .optional()
-          .describe("Action: status of a sentinel, list active tasks, or cancel a task"),
-        id: z.string().optional().describe("Sentinel ID (required for status and cancel)"),
+        action: z.enum(["status", "list", "cancel"]).optional().describe(ACTION_DESCRIPTION),
+        id: z.string().optional().describe(STATUS_ID_DESCRIPTION),
       },
     },
     async (args) => {
@@ -179,15 +130,10 @@ export async function startMcpServer(mcpConfig: McpConfig): Promise<void> {
   server.registerTool(
     "mcp_sentinel_attach",
     {
-      description: ATTACH_DESCRIPTION,
+      description: ATTACH_TOOL_DESCRIPTION,
       inputSchema: {
-        id: z.string().describe("The sentinel ID to wait for"),
-        timeout: z
-          .number()
-          .int()
-          .min(0)
-          .optional()
-          .describe("Maximum wait time in milliseconds (0 or unset = no limit)"),
+        id: z.string().describe(ATTACH_ID_DESCRIPTION),
+        timeout: z.number().int().min(0).optional().describe(ATTACH_TIMEOUT_DESCRIPTION),
       },
     },
     async (args, extra) => {
@@ -199,16 +145,11 @@ export async function startMcpServer(mcpConfig: McpConfig): Promise<void> {
   server.registerTool(
     "mcp_sentinel_read",
     {
-      description: READ_DESCRIPTION,
+      description: READ_TOOL_DESCRIPTION,
       inputSchema: {
-        id: z.string().describe("The sentinel ID to read outputs from"),
-        offset: z
-          .number()
-          .int()
-          .min(0)
-          .optional()
-          .describe("0-based start index (default: from end, giving the last N polls)"),
-        limit: z.number().int().min(1).optional().describe("Max number of outputs (default: 5)"),
+        id: z.string().describe(READ_ID_DESCRIPTION),
+        offset: z.number().int().min(0).optional().describe(READ_OFFSET_DESCRIPTION),
+        limit: z.number().int().min(1).optional().describe(READ_LIMIT_DESCRIPTION),
       },
     },
     async (args) => {
