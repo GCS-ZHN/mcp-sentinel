@@ -27,6 +27,10 @@
   the lockstep version verification loop and the plugin publish step (published
   in parallel with the other plugins, after `packages/core`). A plugin omitted
   from CI will neither be published nor version-checked.
+- **Harness-specific notes live in each package's own `AGENTS.md`**
+  (`packages/<harness>/AGENTS.md`): SDK constraints, reference-doc URLs, local
+  testing commands, and published dependency versions. Keep only the shared,
+  cross-cutting guidance here.
 
 ## Commands
 
@@ -39,29 +43,11 @@ bun run format             # prettier --write
 
 Pre-commit hook runs `typecheck && lint-staged` (prettier). Build **before** test if source changed.
 
-## End-to-end testing
-
-Run with `--log-level DEBUG` to see plugin internal logs (poll events, cleanup timers, etc.):
-
-```bash
-opencode run "..." --dir . --print-logs --log-level DEBUG --model opencode/deepseek-v4-flash-free
-```
-
-Use `pty_spawn` for concurrent E2E runs — it's a background PTY that doesn't block:
-
-```bash
-pty_spawn command=bash args=["-c","export ENV=VALUE && opencode run '...' --dir . --log-level DEBUG ..."]
-```
-
-Set `notifyOnExit=true` and wait for `<pty_exited>` — do NOT poll `pty_read` in a sleep loop.
-
-The repo's `.opencode/opencode.jsonc` loads the plugin from source (`{env:PWD}/packages/opencode/src/plugin.ts`) and includes a `mock-ci` MCP server for testing.
-
-### Mock MCP server (`packages/core/tests/mock-mcp-server.ts`)
+## Mock MCP server (`packages/core/tests/mock-mcp-server.ts`)
 
 Self-contained stdio server with `submit_job` and `get_job_status`. State advances globally per poll: 8 stages, 2 polls each → ~17 polls to reach `status=completed`. `{env:PWD}` paths work in opencode MCP config.
 
-### Environment variable configuration
+## Environment variable configuration
 
 | Variable                | Purpose                                 | 0/unset/NaN |
 | ----------------------- | --------------------------------------- | ----------- |
@@ -77,30 +63,11 @@ Both accept positive integers only. Zero, negative, or non-numeric values are tr
 - **Functions**: `startSentinel`, `cancelSentinel`, `getSentinelTask`, `getActiveSentinels`
 - Files use `.js` extension in imports (ESM + bundler resolution)
 
-## Plugin SDK constraints
-
-- `@opencode-ai/plugin` is pinned to **1.3.13**. Use `tool()` + `tool.schema` for tool definitions.
-- `tool.execute(args, ctx)` returns `Promise<string>`. `ctx.sessionID` provides the session ID.
-- `ctx.abort` signals user cancellation — return `""` on abort.
-- Notification: `client.session.promptAsync({ path: { id: sessionID }, body: { parts: [...] } })` — NOT `prompt()`.
-- Part IDs must start with `prt-`.
-- `client.config.get()` returns `{ data: Config }` — use `.data`.
-
 ## TypeScript
 
 - `verbatimModuleSyntax: true` → use `import type` for type-only imports.
 - `skipLibCheck: true` because the plugin's zod v3/v4 compat types don't resolve cleanly.
 - `noUncheckedIndexedAccess: true`.
-
-## MCP config parsing
-
-OpenCode stores MCP servers as flat keys under `mcp`:
-
-```jsonc
-{ "mcp": { "servername": { "type": "local", "command": [...], "enabled": true } } }
-```
-
-NOT `mcp.servers.{name}`. `type` is `"local"` or `"remote"`. `local.command` is a `string[]`.
 
 ## Release
 
@@ -272,13 +239,11 @@ Judge config: `DEEPSEEK_API_KEY` (or `~/.dsh/.credentials.yaml`),
 
 ### End-to-end tests must cover
 
-Run concurrently via `pty_spawn` with `notifyOnExit=true`. Three test groups:
-
-**Group 1 — Old features (no env vars)**
+**Group 1 — Core features**
 
 - `mcp_sentinel_poll`: submit job, poll until completed
 - `mcp_sentinel_attach`: blocking wait for completion
-- `mcp_sentinel_read`: offset/limit pagination (first 5, later polls)
+- `mcp_sentinel_read`: offset/limit pagination (first N, later polls)
 - `mcp_sentinel_status`: status query, list action
 - `mcp_sentinel_status action=cancel`: cancel a running sentinel
 
@@ -299,7 +264,12 @@ Run concurrently via `pty_spawn` with `notifyOnExit=true`. Three test groups:
 
 ### E2E prompt templates
 
-**Group 1 — Old features**
+The prompts below exercise the groups above against the `mock-ci` MCP server.
+They are harness-agnostic in substance (any harness that registers the
+`mcp_sentinel_*` tools can run them); only the launcher command differs per
+harness (see each package's own `AGENTS.md`).
+
+**Group 1 — Core features**
 
 ```
 Step 1: submit job e2e-features via mock-ci/submit_job.
