@@ -116,7 +116,7 @@ Check the status of sentinel tasks, list active tasks, or cancel a running task.
 
 ### `mcp_sentinel_attach`
 
-Block the agent, waiting for a sentinel task to complete. Sleeps and checks status internally with zero token cost. If cancelled via `ctx.abort`, the background async notification still fires normally.
+Block the agent, waiting for a sentinel task to complete. Sleeps and checks status internally with zero token cost. If interrupted by harness, the background async notification still fires normally.
 
 | Parameter | Type   | Default    | Description                                     |
 | --------- | ------ | ---------- | ----------------------------------------------- |
