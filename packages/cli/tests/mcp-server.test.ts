@@ -15,7 +15,9 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
 const CLI_PATH = join(import.meta.dir, "..", "cli.js");
-const BUN_BIN = "/opt/homebrew/bin/bun";
+// Portable: spawn mock-ci with the bun binary running these tests (CI installs
+// bun outside the macOS Homebrew path).
+const BUN_BIN = process.execPath;
 const MOCK_SERVER_PATH = join(import.meta.dir, "..", "..", "core", "tests", "mock-mcp-server.ts");
 
 let client: Client | null = null;
