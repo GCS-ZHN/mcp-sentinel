@@ -64,10 +64,10 @@ result with `mcp_sentinel_attach` (blocking), `mcp_sentinel_status`, or
 | ---------- | ------ | ---------- | ------------------------------------------- |
 | `server`   | string | _required_ | `serverName` of a `dsh-mcp-client` instance |
 | `tool`     | string | _required_ | Tool name to call on the server             |
-| `args`     | string | `"{}"`     | JSON string of arguments for the tool       |
+| `args`     | object | `{}`       | JSON object of arguments for the tool       |
 | `interval` | number | `5000`     | Poll interval in milliseconds               |
 | `timeout`  | number | _optional_ | Max poll duration in ms (unset = no limit)  |
-| `until`    | string | _required_ | JSON condition object                       |
+| `until`    | object | _required_ | JSON condition object                       |
 
 ### `mcp_sentinel_status`
 

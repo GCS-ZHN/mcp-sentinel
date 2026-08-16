@@ -6,9 +6,10 @@ inference path.
 
 This package has **zero host dependencies**. It exposes the polling engine,
 tool handlers, condition evaluator, MCP connection pool, env parsing, logger,
-and types. Host plugins (`@gcszhn/mcp-sentinel-opencode-plugin`, and future Codex /
-Claude Code / DeepSeek adapters) layer their own tool registration, config
-discovery, and notification channel on top of it.
+and types. Host adapters (`@gcszhn/mcp-sentinel-opencode-plugin`,
+`@gcszhn/mcp-sentinel-deepseek-harness-plugin`, the harness-agnostic
+`@gcszhn/mcp-sentinel-cli`, and future hosts) layer their own tool registration,
+config discovery, and notification channel on top of it.
 
 ## Install
 
