@@ -31,15 +31,15 @@
     "id": "dsh-invalid-args",
     "harness_name": "deepseek-harness",
     "headless_test_command": "npx @deepseek-ai/dsh --profile headless {prompt}",
-    "input_prompt": "调用 mcp_sentinel_poll，参数 server='mock-ci'、tool='get_job_status'、args='not-json'、until='{\"path\":\"x\",\"is\":\"eq\",\"value\":1}'，报告返回的错误信息。",
-    "expect_result": "工具返回错误，指出 args 参数是无效 JSON。"
+    "input_prompt": "调用 mcp_sentinel_poll，参数 server='mock-ci'、tool='get_job_status'、args 传一个非对象（例如字符串 \"not-an-object\"）、until={\"path\":\"x\",\"is\":\"eq\",\"value\":1}，报告返回的错误信息。",
+    "expect_result": "工具（或 harness）拒绝 args，因为它不是 JSON 对象。"
   },
   {
     "id": "dsh-invalid-until",
     "harness_name": "deepseek-harness",
     "headless_test_command": "npx @deepseek-ai/dsh --profile headless {prompt}",
-    "input_prompt": "调用 mcp_sentinel_poll，参数 server='mock-ci'、tool='get_job_status'、until='not-an-object'，报告返回的错误信息。",
-    "expect_result": "工具返回错误，指出 until 参数是无效 JSON（不是 JSON 对象）。"
+    "input_prompt": "调用 mcp_sentinel_poll，参数 server='mock-ci'、tool='get_job_status'、until 传一个非对象（例如字符串 \"not-an-object\"），报告返回的错误信息。",
+    "expect_result": "工具返回错误，指出 until 必须是 JSON 对象（不是 JSON 对象）。"
   },
   {
     "id": "dsh-codegraph-real-mcp",

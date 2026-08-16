@@ -17,6 +17,11 @@ exposes them:
 - **Through the harness SDK** — DeepSeek Harness. The plugin calls the
   `mcp__<server>__<tool>` tools already registered by
   `@deepseek-ai/dsh-mcp-client` via `ctx.tools.execute`. No extra MCP setup.
+- **As a harness-agnostic MCP CLI** — any harness. `mcp-sentinel mcp --harness
+  <codex|opencode|custom>` is a plain stdio MCP server that discovers the MCP
+  servers the harness already exposes (`codex mcp list --json`, `opencode debug
+  config`, or a `--mcp-config` file) and skips its own entry. No message
+  notification channel — agents collect results with attach/status/read.
 
 The agent immediately sees the MCP servers it already configured for that
 harness; there is no sentinel-specific MCP config, mock server, or demo wiring
@@ -30,6 +35,7 @@ Install instructions and per-harness details live in each plugin's own README.
 | ---------------- | ---------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
 | OpenCode         | [`@gcszhn/mcp-sentinel-opencode-plugin`](https://www.npmjs.com/package/@gcszhn/mcp-sentinel-opencode-plugin)                 | [README](packages/opencode/README.md)         |
 | DeepSeek Harness | [`@gcszhn/mcp-sentinel-deepseek-harness-plugin`](https://www.npmjs.com/package/@gcszhn/mcp-sentinel-deepseek-harness-plugin) | [README](packages/deepseek-harness/README.md) |
+| Any harness (CLI) | [`@gcszhn/mcp-sentinel-cli`](https://www.npmjs.com/package/@gcszhn/mcp-sentinel-cli)                                             | [README](packages/cli/README.md)               |
 
 The shared core ships separately as [`@gcszhn/mcp-sentinel-core`](https://www.npmjs.com/package/@gcszhn/mcp-sentinel-core) — see [its README](packages/core/README.md).
 

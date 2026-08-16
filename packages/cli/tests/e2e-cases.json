@@ -1,0 +1,122 @@
+[
+  {
+    "id": "codex-poll-attach-completes",
+    "harness_name": "codex",
+    "headless_test_command": "codex exec -m deepseek/deepseek-v4-pro --skip-git-repo-check -s danger-full-access {prompt}",
+    "workdir": "/private/tmp/mcp-sentinel-e2e",
+    "input_prompt": "只使用 mcp_sentinel_* 工具完成，禁止读取本地文件、运行 shell 命令或检查配置。用 mcp_sentinel_poll 轮询 mock-ci 的 get_job_status（args={\"job_id\":\"e2e\"}，until={\"path\":\"status\",\"is\":\"eq\",\"value\":\"completed\"}，interval=1000）。然后用 mcp_sentinel_attach 等待完成，最后报告 job 的 status 和 progress。",
+    "expect_result": "The sentinel polls get_job_status until status becomes completed and the agent reports the job as completed with progress 100%."
+  },
+  {
+    "id": "codex-timeout",
+    "harness_name": "codex",
+    "headless_test_command": "codex exec -m deepseek/deepseek-v4-pro --skip-git-repo-check -s danger-full-access {prompt}",
+    "workdir": "/private/tmp/mcp-sentinel-e2e",
+    "input_prompt": "只使用 mcp_sentinel_* 工具完成，禁止读取本地文件、运行 shell 命令或检查配置。启动且仅启动一个 sentinel：用 mcp_sentinel_poll 轮询 mock-ci 的 get_job_status（args={\"job_id\":\"e2e-timeout\"}，until={\"path\":\"status\",\"is\":\"eq\",\"value\":\"completed\"}，interval=1000，timeout=5000）。不要启动第二个 sentinel。该任务约需 17 秒完成，5 秒会超时。用 mcp_sentinel_status 查询该 sentinel 的最终 status 并报告。",
+    "expect_result": "The sentinel's final status is timeout (the 5s deadline elapses before the ~17s job completes), not completed."
+  },
+  {
+    "id": "codex-unknown-server",
+    "harness_name": "codex",
+    "headless_test_command": "codex exec -m deepseek/deepseek-v4-pro --skip-git-repo-check -s danger-full-access {prompt}",
+    "workdir": "/private/tmp/mcp-sentinel-e2e",
+    "input_prompt": "只使用 mcp_sentinel_* 工具完成，禁止读取本地文件、运行 shell 命令或检查配置。调用 mcp_sentinel_poll，server='nonexistent'、tool='get_job_status'、until={\"path\":\"x\",\"is\":\"eq\",\"value\":1}，报告工具返回的错误信息。",
+    "expect_result": "The tool returns an error stating the MCP server is unknown (e.g. \"Unknown MCP server: nonexistent\")."
+  },
+  {
+    "id": "codex-empty-server",
+    "harness_name": "codex",
+    "headless_test_command": "codex exec -m deepseek/deepseek-v4-pro --skip-git-repo-check -s danger-full-access {prompt}",
+    "workdir": "/private/tmp/mcp-sentinel-e2e",
+    "input_prompt": "只使用 mcp_sentinel_* 工具完成，禁止读取本地文件、运行 shell 命令或检查配置。调用 mcp_sentinel_poll，server=''、tool='get_job_status'、until={\"path\":\"x\",\"is\":\"eq\",\"value\":1}，报告工具返回的错误信息。",
+    "expect_result": "The tool returns an error stating server and tool must be non-empty strings."
+  },
+  {
+    "id": "codex-invalid-until",
+    "harness_name": "codex",
+    "headless_test_command": "codex exec -m deepseek/deepseek-v4-pro --skip-git-repo-check -s danger-full-access {prompt}",
+    "workdir": "/private/tmp/mcp-sentinel-e2e",
+    "input_prompt": "只使用 mcp_sentinel_* 工具完成，禁止读取本地文件、运行 shell 命令或检查配置。调用 mcp_sentinel_poll，server='mock-ci'、tool='get_job_status'，until 传一个非对象值（字符串 \"not-an-object\"），报告工具返回的错误信息。",
+    "expect_result": "The tool returns an error stating until must be a JSON object describing a condition."
+  },
+  {
+    "id": "codex-nonleaf-condition",
+    "harness_name": "codex",
+    "headless_test_command": "codex exec -m deepseek/deepseek-v4-pro --skip-git-repo-check -s danger-full-access {prompt}",
+    "workdir": "/private/tmp/mcp-sentinel-e2e",
+    "input_prompt": "只使用 mcp_sentinel_* 工具完成，禁止读取本地文件、运行 shell 命令或检查配置。用 mcp_sentinel_poll 轮询 mock-ci 的 get_job_status（args={\"job_id\":\"e2e\"}，until={\"path\":\"steps\",\"is\":\"eq\",\"value\":0}，interval=1000，timeout=10000）。steps 是数组（非叶子），sentinel 应报错。用 mcp_sentinel_status 查询该 sentinel 并报告它的 status 与错误信息。",
+    "expect_result": "The sentinel errors because the condition resolved to a non-leaf value (array), surfacing an error rather than silently never matching."
+  },
+  {
+    "id": "codex-missing-key",
+    "harness_name": "codex",
+    "headless_test_command": "codex exec -m deepseek/deepseek-v4-pro --skip-git-repo-check -s danger-full-access {prompt}",
+    "workdir": "/private/tmp/mcp-sentinel-e2e",
+    "input_prompt": "只使用 mcp_sentinel_* 工具完成，禁止读取本地文件、运行 shell 命令或检查配置。用 mcp_sentinel_poll 轮询 mock-ci 的 get_job_status（args={\"job_id\":\"e2e\"}，until={\"path\":\"statuss\",\"is\":\"eq\",\"value\":\"completed\"}，interval=1000，timeout=10000）。statuss 是拼写错误。用 mcp_sentinel_status 查询该 sentinel 并报告它的 status 与错误信息。",
+    "expect_result": "The sentinel errors because the condition path references a key that does not exist (a field-name typo)."
+  },
+  {
+    "id": "codex-codegraph-real-mcp",
+    "harness_name": "codex",
+    "headless_test_command": "codex exec -m deepseek/deepseek-v4-pro --skip-git-repo-check -s danger-full-access {prompt}",
+    "workdir": "/private/tmp/mcp-sentinel-e2e",
+    "input_prompt": "只使用 mcp_sentinel_* 工具完成，禁止读取本地文件、运行 shell 命令或检查配置。用 mcp_sentinel_poll 轮询 codegraph 的 codegraph_explore（args={\"query\":\"evaluateCondition\",\"projectPath\":\"/Users/gcszhn/Documents/project/mcp-sentinel\"}，until={\"is\":\"contains\",\"value\":\"evaluateCondition\"}，interval=1000，timeout=20000）。然后用 mcp_sentinel_attach 等待完成，报告 sentinel 是否成功完成并返回了包含 evaluateCondition 的探索结果。",
+    "expect_result": "The sentinel completes by calling the real codegraph stdio MCP tool codegraph_explore, returning exploration results that contain the evaluateCondition symbol."
+  },
+  {
+    "id": "codex-status-list-cancel",
+    "harness_name": "codex",
+    "headless_test_command": "codex exec -m deepseek/deepseek-v4-pro --skip-git-repo-check -s danger-full-access {prompt}",
+    "workdir": "/private/tmp/mcp-sentinel-e2e",
+    "input_prompt": "只使用 mcp_sentinel_* 工具完成，禁止读取本地文件、运行 shell 命令或检查配置。用 mcp_sentinel_poll 启动一个轮询 mock-ci get_job_status 的 sentinel（until={\"path\":\"status\",\"is\":\"eq\",\"value\":\"completed\"}，interval=5000）。然后用 mcp_sentinel_status action=list 列出任务，再用 action=cancel 取消它，最后用 action=status 确认最终 status。",
+    "expect_result": "mcp_sentinel_status list shows the task, cancel succeeds, and the final status is cancelled."
+  },
+  {
+    "id": "codex-read-pagination",
+    "harness_name": "codex",
+    "headless_test_command": "codex exec -m deepseek/deepseek-v4-pro --skip-git-repo-check -s danger-full-access {prompt}",
+    "workdir": "/private/tmp/mcp-sentinel-e2e",
+    "input_prompt": "只使用 mcp_sentinel_* 工具完成，禁止读取本地文件、运行 shell 命令或检查配置。用 mcp_sentinel_poll 启动轮询 mock-ci get_job_status（args={\"job_id\":\"e2e-read\"}，interval=5000，until={\"path\":\"status\",\"is\":\"eq\",\"value\":\"completed\"}，不设 timeout）。启动后立即用 mcp_sentinel_read offset=0 limit=3 读取已产生的 poll 输出，把 read 返回的 poll 编号及其 JSON 摘录到回复中。最后用 mcp_sentinel_status action=cancel 取消该 sentinel。",
+    "expect_result": "mcp_sentinel_read returns the produced poll output(s) (at least poll #1 with its JSON), proving read pagination works."
+  },
+  {
+    "id": "cli-opencode-poll-attach-completes",
+    "harness_name": "opencode-cli",
+    "headless_test_command": "opencode run --pure --auto --dir /private/tmp/mcp-sentinel-opencode-e2e --print-logs -m deepseek/deepseek-v4-pro {prompt}",
+    "workdir": "/private/tmp/mcp-sentinel-opencode-e2e",
+    "input_prompt": "只使用 mcp_sentinel_* 工具完成，禁止直接调用 mock-ci 或其他任何 MCP 工具、禁止读取本地文件、运行 shell 命令或检查配置。调用一次 mcp_sentinel_poll 轮询 mock-ci 的 get_job_status（args={\"job_id\":\"e2e\"}，until={\"path\":\"status\",\"is\":\"eq\",\"value\":\"completed\"}，interval=1000），得到 sentinel ID 后调用 mcp_sentinel_attach（参数为该 ID）等待完成，不要重复调用 mcp_sentinel_poll，最后报告 job 的 status 和 progress。",
+    "expect_result": "The sentinel polls mock-ci get_job_status until status becomes completed and the agent reports the job as completed with progress 100%."
+  },
+  {
+    "id": "cli-opencode-unknown-server",
+    "harness_name": "opencode-cli",
+    "headless_test_command": "opencode run --pure --auto --dir /private/tmp/mcp-sentinel-opencode-e2e --print-logs -m deepseek/deepseek-v4-pro {prompt}",
+    "workdir": "/private/tmp/mcp-sentinel-opencode-e2e",
+    "input_prompt": "只使用 mcp_sentinel_* 工具完成，禁止读取本地文件、运行 shell 命令或检查配置。调用 mcp_sentinel_poll，server='nonexistent'、tool='get_job_status'、until={\"path\":\"x\",\"is\":\"eq\",\"value\":1}，报告工具返回的错误信息。",
+    "expect_result": "The tool returns an error stating the MCP server is unknown (\"Unknown MCP server: nonexistent\")."
+  },
+  {
+    "id": "cli-opencode-empty-server",
+    "harness_name": "opencode-cli",
+    "headless_test_command": "opencode run --pure --auto --dir /private/tmp/mcp-sentinel-opencode-e2e --print-logs -m deepseek/deepseek-v4-pro {prompt}",
+    "workdir": "/private/tmp/mcp-sentinel-opencode-e2e",
+    "input_prompt": "只使用 mcp_sentinel_* 工具完成，禁止读取本地文件、运行 shell 命令或检查配置。调用 mcp_sentinel_poll，server=''、tool='get_job_status'、until={\"path\":\"x\",\"is\":\"eq\",\"value\":1}，报告工具返回的错误信息。",
+    "expect_result": "The tool returns an error stating server and tool must be non-empty strings."
+  },
+  {
+    "id": "cli-custom-poll-attach-completes",
+    "harness_name": "custom",
+    "headless_test_command": "opencode run --pure --auto --dir /private/tmp/mcp-sentinel-custom-e2e --print-logs -m deepseek/deepseek-v4-pro {prompt}",
+    "workdir": "/private/tmp/mcp-sentinel-custom-e2e",
+    "input_prompt": "只使用 mcp_sentinel_* 工具完成，禁止读取本地文件、运行 shell 命令或检查配置。调用一次 mcp_sentinel_poll 轮询 mock-ci 的 get_job_status（args={\"job_id\":\"e2e\"}，until={\"path\":\"status\",\"is\":\"eq\",\"value\":\"completed\"}，interval=1000），得到 sentinel ID 后调用 mcp_sentinel_attach（参数为该 ID）等待完成，不要重复调用 mcp_sentinel_poll，最后报告 job 的 status 和 progress。",
+    "expect_result": "The sentinel polls mock-ci get_job_status (from the custom --mcp-config file) until status becomes completed and the agent reports the job as completed with progress 100%."
+  },
+  {
+    "id": "cli-custom-unknown-server",
+    "harness_name": "custom",
+    "headless_test_command": "opencode run --pure --auto --dir /private/tmp/mcp-sentinel-custom-e2e --print-logs -m deepseek/deepseek-v4-pro {prompt}",
+    "workdir": "/private/tmp/mcp-sentinel-custom-e2e",
+    "input_prompt": "只使用 mcp_sentinel_* 工具完成，禁止读取本地文件、运行 shell 命令或检查配置。调用 mcp_sentinel_poll，server='nonexistent'、tool='get_job_status'、until={\"path\":\"x\",\"is\":\"eq\",\"value\":1}，报告工具返回的错误信息。",
+    "expect_result": "The tool returns an error stating the MCP server is unknown (\"Unknown MCP server: nonexistent\")."
+  }
+]

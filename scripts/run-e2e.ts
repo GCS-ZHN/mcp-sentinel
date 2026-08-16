@@ -41,6 +41,13 @@ interface E2ECase {
   headless_test_command: string;
   input_prompt: string;
   expect_result: string;
+  /**
+   * Optional working directory for the harness run. Absolute, or relative to
+   * the repo root. Created if missing. Useful for harnesses whose agent must
+   * run in an isolated directory so the project's own code/AGENTS context
+   * cannot interfere with the test (e.g. the Codex harness).
+   */
+  workdir?: string;
 }
 
 interface CaseFile {
@@ -177,9 +184,13 @@ async function runCase(
   }
 
   const started = Date.now();
+  const cwd = c.workdir ? resolve(ROOT, c.workdir) : ROOT;
+  if (c.workdir) {
+    mkdirSync(cwd, { recursive: true });
+  }
   const proc = spawnSync(command, {
     shell: true,
-    cwd: ROOT,
+    cwd,
     encoding: "utf8",
     timeout: DEFAULT_TIMEOUT_MS,
     maxBuffer: 10 * 1024 * 1024,

@@ -25,14 +25,14 @@
     "harness_name": "opencode",
     "headless_test_command": "opencode run {prompt} --dir . --print-logs --model opencode/deepseek-v4-flash-free",
     "input_prompt": "Use mcp_sentinel_poll server=mock-ci tool=get_job_status until=not-an-object and report the error.",
-    "expect_result": "The tool returns an error stating the until parameter is invalid JSON (not a JSON object)."
+    "expect_result": "The tool returns an error stating the until parameter must be a JSON object (not a JSON object)."
   },
   {
     "id": "opencode-invalid-args",
     "harness_name": "opencode",
     "headless_test_command": "opencode run {prompt} --dir . --print-logs --model opencode/deepseek-v4-flash-free",
-    "input_prompt": "Use mcp_sentinel_poll server=mock-ci tool=get_job_status args=not-json until={\"path\":\"x\",\"is\":\"eq\",\"value\":1} and report the error.",
-    "expect_result": "The tool returns an error stating the args parameter is invalid JSON."
+    "input_prompt": "Use mcp_sentinel_poll server=mock-ci tool=get_job_status args=\"not-an-object\" until={\"path\":\"x\",\"is\":\"eq\",\"value\":1} and report the error.",
+    "expect_result": "The tool rejects args because it is not a JSON object."
   },
   {
     "id": "opencode-timeout",
