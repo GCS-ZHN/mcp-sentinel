@@ -35,10 +35,10 @@ condition is met. Returns a sentinel ID immediately; the agent is notified via
 | ---------- | ------ | ---------- | ------------------------------------------ |
 | `server`   | string | _required_ | MCP server name (from opencode config)     |
 | `tool`     | string | _required_ | Tool name to call on the server            |
-| `args`     | string | `"{}"`     | JSON string of arguments for the tool      |
+| `args`     | object | `{}`       | JSON object of arguments for the tool      |
 | `interval` | number | `5000`     | Poll interval in milliseconds              |
 | `timeout`  | number | _optional_ | Max poll duration in ms (unset = no limit) |
-| `until`    | string | _required_ | JSON condition object                      |
+| `until`    | object | _required_ | JSON condition object                      |
 
 ### `mcp_sentinel_status`
 

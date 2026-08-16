@@ -4,6 +4,9 @@ An [OpenCode](https://opencode.ai) harness adapter for
 `@gcszhn/mcp-sentinel-core`. It runs in **connection-pool mode**: it reads the
 host's MCP config and lets the core own the MCP connections.
 
+Supplements the repository-root `AGENTS.md`, which governs git flow, lockstep
+versioning, CI, and the project-wide tool/testing standards.
+
 ## E2E testing
 
 Run with `--log-level DEBUG` to see plugin internal logs (poll events, cleanup
@@ -32,7 +35,6 @@ for testing.
   tool definitions.
 - `tool.execute(args, ctx)` returns `Promise<string>`. `ctx.sessionID` provides
   the session ID.
-- `ctx.abort` signals user cancellation — return `""` on abort.
 - Notification:
   `client.session.promptAsync({ path: { id: sessionID }, body: { parts: [...] } })`
   — NOT `prompt()`.

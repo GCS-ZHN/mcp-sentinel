@@ -27,25 +27,27 @@
   the lockstep version verification loop and the plugin publish step (published
   in parallel with the other plugins, after `packages/core`). A plugin omitted
   from CI will neither be published nor version-checked.
-- **Harness-specific notes live in each package's own `AGENTS.md`**
-  (`packages/<harness>/AGENTS.md`): SDK constraints, reference-doc URLs, local
-  testing commands, and published dependency versions. Keep only the shared,
-  cross-cutting guidance here.
+- **Package-specific notes live in each package's own `AGENTS.md`**
+  (`packages/core/AGENTS.md`, `packages/<harness>/AGENTS.md`): SDK constraints,
+  reference-doc URLs, local testing commands, and published dependency
+  versions. Keep only the shared, cross-cutting guidance here.
 
 ## Commands
 
 ```bash
 bun run typecheck          # tsc --noEmit
-bun run build              # rm -rf dist && bunx tsc
-bun test                   # bun test (73 tests)
+bun run build              # core first, then opencode, deepseek-harness, cli (each: rm -rf dist && bunx tsc)
+bun test                   # unit tests across all packages (run build first if source changed)
 bun run format             # prettier --write
 ```
 
-Pre-commit hook runs `typecheck && lint-staged` (prettier). Build **before** test if source changed.
+Pre-commit hook runs `typecheck && verify-versions && lint-staged` (prettier).
 
 ## Mock MCP server (`packages/core/tests/mock-mcp-server.ts`)
 
-Self-contained stdio server with `submit_job` and `get_job_status`. State advances globally per poll: 8 stages, 2 polls each → ~17 polls to reach `status=completed`. `{env:PWD}` paths work in opencode MCP config.
+The shared E2E fixture (`submit_job` / `get_job_status`) that every harness's
+E2E setup registers as `mock-ci`. Its behavioral spec and change constraints
+live in `packages/core/AGENTS.md`.
 
 ## Environment variable configuration
 
@@ -76,13 +78,14 @@ Both accept positive integers only. Zero, negative, or non-numeric values are tr
 #      packages/core/package.json
 #      packages/opencode/package.json          (+ its `@gcszhn/mcp-sentinel-core` dep, pinned to the same version)
 #      packages/deepseek-harness/package.json  (+ its `@gcszhn/mcp-sentinel-core` dep, pinned to the same version)
+#      packages/cli/package.json               (+ its `@gcszhn/mcp-sentinel-core` dep, pinned to the same version)
 # 2. Commit, tag, push
 git tag vX.Y.Z && git push origin main vX.Y.Z
 ```
 
 Tag push triggers `.github/workflows/release.yml` (typecheck → build → test →
 verify versions → publish `@gcszhn/mcp-sentinel-core`, then publish every plugin
-(`opencode`, `deepseek-harness`) in parallel → GitHub release).
+(`opencode`, `deepseek-harness`, `cli`) in parallel → GitHub release).
 
 **No hardcoded version strings.** The MCP client info (`name`/`version`) is imported from `package.json` with `{ type: "json" }` at compile time. Updating `package.json` version is the only required change for a release.
 
@@ -96,7 +99,8 @@ plugin pinning the core to a different version).
 
 **Monorepo layout.** `packages/core` publishes `@gcszhn/mcp-sentinel-core`;
 `packages/opencode` publishes `@gcszhn/mcp-sentinel-opencode-plugin`;
-`packages/deepseek-harness` publishes `@gcszhn/mcp-sentinel-deepseek-harness-plugin`.
+`packages/deepseek-harness` publishes `@gcszhn/mcp-sentinel-deepseek-harness-plugin`;
+`packages/cli` publishes `@gcszhn/mcp-sentinel-cli`.
 
 ## Tool development standards
 
@@ -215,10 +219,12 @@ Judge config: `DEEPSEEK_API_KEY` (or `~/.dsh/.credentials.yaml`),
   poll + attach happy path, timeout, invalid `args`/`until`, non-leaf condition,
   and a real stdio MCP — must have a case in **every** harness. Only
   harness-specific behavior (OpenCode's synchronous `Unknown MCP server`,
-  DeepSeek Harness's `UNKNOWN_TOOL`) may exist in a single harness.
+  DeepSeek Harness's `UNKNOWN_TOOL`, and the CLI's own `Unknown MCP server`
+  check, which applies to every harness it serves) may exist in a single
+  harness.
 - **Test timeout**, not just success/error: a sentinel whose deadline elapses
   before the job completes must surface `timeout`.
-- **Test boundaries and invalid inputs**: invalid JSON `args`, non-object
+- **Test boundaries and invalid inputs**: non-object `args`, non-object
   `until`, empty server/tool, and the non-leaf-condition error.
 - **Test a real stdio MCP, not only the mock** — e.g. `codegraph serve --mcp`;
   its `codegraph_explore` tool returns plain text, which also exercises the
@@ -258,9 +264,10 @@ Judge config: `DEEPSEEK_API_KEY` (or `~/.dsh/.credentials.yaml`),
 
 - `server=nonexistent` → `Unknown MCP server: nonexistent`
 - `tool=nonexistent` → raw MCP error `-32602: Tool nonexistent not found` verbatim
-- `args=invalid-json` → `Invalid JSON for args parameter.`
+- `args` not a JSON object (e.g. the string `"not-an-object"`) → the harness
+  schema rejects it because `args` is not a JSON object
 - `server=""` → `server and tool must be non-empty strings.`
-- `until=not-an-object` → `Invalid JSON for until parameter.`
+- `until` not a JSON object (e.g. the string `"not-an-object"`) → `until must be a JSON object describing a condition.`
 
 ### E2E prompt templates
 
@@ -302,11 +309,11 @@ Test these error cases with mcp_sentinel_poll:
    → expect Unknown MCP server.
 2) server=mock-ci tool=nonexistent args={"job_id":"err-test"} until={"path":"status","is":"eq","value":"completed"}
    → expect MCP error passed through.
-3) server=mock-ci tool=get_job_status args=invalid-json until={"path":"status","is":"eq","value":"completed"}
-   → expect Invalid JSON for args.
+3) server=mock-ci tool=get_job_status args="not-an-object" until={"path":"status","is":"eq","value":"completed"}
+   → expect args rejected because it is not a JSON object.
 4) server="" tool=get_job_status until={"path":"x","is":"eq","value":1}
    → expect non-empty strings error.
 5) server=mock-ci tool=get_job_status args={} until=not-an-object
-   → expect Invalid JSON for until.
+   → expect until must be a JSON object describing a condition.
 Run each and verify the error messages are clear and actionable.
 ```
