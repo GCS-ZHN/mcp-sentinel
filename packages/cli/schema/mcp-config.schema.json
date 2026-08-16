@@ -1,0 +1,81 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://gcs-zhn.github.io/mcp-sentinel/schemas/mcp-config.schema.json",
+  "title": "mcp-sentinel custom MCP config",
+  "description": "Schema for the custom MCP config file passed to `mcp-sentinel mcp --harness custom --mcp-config <file>`. Entry field names follow OpenCode's MCP config.",
+  "type": "object",
+  "required": ["servers"],
+  "properties": {
+    "servers": {
+      "type": "object",
+      "description": "Map of MCP server name to server config.",
+      "additionalProperties": { "$ref": "#/$defs/McpServerConfig" }
+    }
+  },
+  "$defs": {
+    "McpServerConfig": {
+      "oneOf": [
+        { "$ref": "#/$defs/McpLocalConfig" },
+        { "$ref": "#/$defs/McpRemoteConfig" }
+      ]
+    },
+    "McpLocalConfig": {
+      "title": "Local (stdio) MCP server",
+      "type": "object",
+      "required": ["type", "command"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["local"]
+        },
+        "command": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" },
+          "description": "Executable and arguments for the subprocess."
+        },
+        "cwd": {
+          "type": "string",
+          "description": "Working directory for the subprocess."
+        },
+        "environment": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Environment variables to set for the subprocess."
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "When false, the server is skipped."
+        }
+      }
+    },
+    "McpRemoteConfig": {
+      "title": "Remote (Streamable HTTP) MCP server",
+      "type": "object",
+      "required": ["type", "url"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["remote"]
+        },
+        "url": {
+          "type": "string",
+          "description": "URL of the remote MCP endpoint."
+        },
+        "headers": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "HTTP headers to send with each request."
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "When false, the server is skipped."
+        }
+      }
+    }
+  }
+}

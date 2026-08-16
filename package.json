@@ -5,9 +5,10 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "(cd packages/core && bun run build) && (cd packages/opencode && bun run build) && (cd packages/deepseek-harness && bun run build)",
-    "typecheck": "(cd packages/core && bun run build) && (cd packages/core && bun run typecheck) && (cd packages/opencode && bun run typecheck) && (cd packages/deepseek-harness && bun run typecheck)",
+    "build": "(cd packages/core && bun run build) && (cd packages/opencode && bun run build) && (cd packages/deepseek-harness && bun run build) && (cd packages/cli && bun run build)",
+    "typecheck": "(cd packages/core && bun run build) && (cd packages/core && bun run typecheck) && (cd packages/opencode && bun run typecheck) && (cd packages/deepseek-harness && bun run typecheck) && (cd packages/cli && bun run typecheck)",
     "test": "bun test",
+    "codex:install": "bash scripts/install-codex-mcp.sh",
     "format": "prettier --write \"packages/*/src/**/*.ts\" \"packages/*/tests/**/*.ts\"",
     "format:check": "prettier --check \"packages/*/src/**/*.ts\" \"packages/*/tests/**/*.ts\"",
     "prepare": "husky"

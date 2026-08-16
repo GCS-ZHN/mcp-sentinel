@@ -19,3 +19,5 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 .omo
 package/
 e2e-results/
+packages/cli/cli.js
+.codex-marketplace/
