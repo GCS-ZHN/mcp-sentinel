@@ -19,6 +19,8 @@ export const POLL_TIMEOUT_DESCRIPTION =
   "Maximum poll duration in milliseconds (0 or unset = no limit)";
 export const UNTIL_DESCRIPTION =
   'Condition object to wait for, e.g. {"path":"status","is":"eq","value":"completed"}';
+export const NOTIFIER_ID_DESCRIPTION =
+  "Optional notifier_id (uuid) returned by mcp_sentinel_set_notifier_commands; the resolved sentinel runs that session's command list.";
 export const ACTION_DESCRIPTION =
   "Action: status of a sentinel, list active tasks, or cancel a task";
 export const STATUS_ID_DESCRIPTION = "Sentinel ID (required for status and cancel)";
@@ -53,6 +55,7 @@ Parameters:
 - interval: ${INTERVAL_DESCRIPTION}
 - timeout: ${POLL_TIMEOUT_DESCRIPTION}
 - until: ${UNTIL_DESCRIPTION}
+- notifier_id: ${NOTIFIER_ID_DESCRIPTION}
 
 ${CONDITION_MODEL}
 

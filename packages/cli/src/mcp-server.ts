@@ -1,15 +1,21 @@
 /**
  * Sentinel stdio MCP server for the CLI.
  *
- * Registers the four `mcp_sentinel_*` tools against a harness-discovered MCP
+ * Registers the `mcp_sentinel_*` tools against a harness-discovered MCP
  * config (connection-pool mode) and serves them over stdio. All request /
  * response logic lives in `@gcszhn/mcp-sentinel-core`; this module only owns
  * the MCP server seams.
  *
- * The CLI deliberately sets the notifier to `null`: as a generic MCP server it
+ * By default the CLI sets the notifier to `null`: as a generic MCP server it
  * has no harness message channel (no OpenCode `promptAsync`, no Codex hook),
  * so background completion is collected by the agent via
  * `mcp_sentinel_attach` / `mcp_sentinel_status` / `mcp_sentinel_read`.
+ * The optional `mcp_sentinel_set_notifier_commands` tool lets an agent install
+ * a command-based notifier: it returns a `notifier_id` that the agent passes to
+ * `mcp_sentinel_poll` (stored as the task's `sessionID`). Because the server
+ * is shared globally, a per-id registry keeps each session's notifications
+ * isolated. A single dispatcher installed via `setNotifier` reads the task's
+ * `sessionID` and runs that session's command list when a sentinel resolves.
  *
  * @module
  */
@@ -24,6 +30,7 @@ import {
   ATTACH_TIMEOUT_DESCRIPTION,
   ATTACH_TOOL_DESCRIPTION,
   INTERVAL_DESCRIPTION,
+  NOTIFIER_ID_DESCRIPTION,
   POLL_TIMEOUT_DESCRIPTION,
   POLL_TOOL_DESCRIPTION,
   READ_ID_DESCRIPTION,
@@ -48,6 +55,12 @@ import {
   setNotifier,
 } from "@gcszhn/mcp-sentinel-core";
 import type { McpConfig, SentinelCondition } from "@gcszhn/mcp-sentinel-core";
+import {
+  buildCommandNotifierDispatcher,
+  handleSetNotifierCommands,
+  NOTIFIER_COMMANDS_DESCRIPTION,
+  SET_NOTIFIER_TOOL_DESCRIPTION,
+} from "./notifier-commands.js";
 import pkg from "../package.json" with { type: "json" };
 
 /**
@@ -66,9 +79,10 @@ export async function startMcpServer(mcpConfig: McpConfig): Promise<void> {
     process.stderr.write(`[mcp-sentinel][${level}] ${message}${suffix}\n`);
   });
 
-  // No harness message channel: background completions are collected via
-  // mcp_sentinel_attach / status / read.
-  setNotifier(null);
+  // Install the global command-dispatcher notifier. It reads each task's
+  // request.sessionID (the notifier_id an agent passed to mcp_sentinel_poll)
+  // and runs that session's command list on resolution.
+  setNotifier(buildCommandNotifierDispatcher());
 
   const resolveServer = makeServerResolver(mcpConfig);
   const invoke = makeConnectionInvoker(resolveServer);
@@ -89,6 +103,7 @@ export async function startMcpServer(mcpConfig: McpConfig): Promise<void> {
         interval: z.number().int().min(1000).optional().describe(INTERVAL_DESCRIPTION),
         timeout: z.number().int().min(0).optional().describe(POLL_TIMEOUT_DESCRIPTION),
         until: z.json().describe(UNTIL_DESCRIPTION),
+        notifier_id: z.string().optional().describe(NOTIFIER_ID_DESCRIPTION),
       },
     },
     async (args) => {
@@ -105,9 +120,24 @@ export async function startMcpServer(mcpConfig: McpConfig): Promise<void> {
           interval: args.interval,
           timeout: args.timeout,
           until: args.until as unknown as SentinelCondition,
+          sessionID: args.notifier_id,
         },
         invoke
       );
+      return { content: [{ type: "text" as const, text }] };
+    }
+  );
+
+  server.registerTool(
+    "mcp_sentinel_set_notifier_commands",
+    {
+      description: SET_NOTIFIER_TOOL_DESCRIPTION,
+      inputSchema: {
+        commands: z.array(z.string()).min(1).describe(NOTIFIER_COMMANDS_DESCRIPTION),
+      },
+    },
+    async (args) => {
+      const text = handleSetNotifierCommands(args.commands);
       return { content: [{ type: "text" as const, text }] };
     }
   );

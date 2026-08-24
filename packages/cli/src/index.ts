@@ -10,3 +10,4 @@
 
 export * from "./config.js";
 export * from "./mcp-server.js";
+export * from "./notifier-commands.js";

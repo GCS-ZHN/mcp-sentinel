@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "bun:test";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -72,15 +72,34 @@ describe.skipIf(!existsSync(CLI_PATH))("cli mcp stdio integration", () => {
     }
   });
 
-  it("registers the four mcp_sentinel_* tools", async () => {
+  it("registers the mcp_sentinel_* tools", async () => {
     const tools = await client!.listTools();
     const names = tools.tools.map((t) => t.name).sort();
     expect(names).toEqual([
       "mcp_sentinel_attach",
       "mcp_sentinel_poll",
       "mcp_sentinel_read",
+      "mcp_sentinel_set_notifier_commands",
       "mcp_sentinel_status",
     ]);
+  });
+
+  it("mcp_sentinel_set_notifier_commands installs a command notifier", async () => {
+    const result = await client!.callTool({
+      name: "mcp_sentinel_set_notifier_commands",
+      arguments: { commands: ['echo "{}"'] },
+    });
+    expect(result.isError).toBeUndefined();
+    expect(extractText(result)).toContain("Command notifier installed");
+  });
+
+  it("mcp_sentinel_set_notifier_commands rejects a missing placeholder", async () => {
+    const result = await client!.callTool({
+      name: "mcp_sentinel_set_notifier_commands",
+      arguments: { commands: ["no placeholder here"] },
+    });
+    expect(result.isError).toBeUndefined();
+    expect(extractText(result)).toContain('exactly one "{}"');
   });
 
   it("mcp_sentinel_status action=list reports no active tasks", async () => {
@@ -161,4 +180,41 @@ describe.skipIf(!existsSync(CLI_PATH))("cli mcp stdio integration", () => {
     }
     expect(statusText).toContain("**Status:** completed");
   });
+  // mock-ci needs ~16 polls to reach "completed"; with interval=1000 that is
+  // ~16s, so give this case a generous timeout instead of the 5s default.
+  it("runs the per-session command notifier when polled with notifier_id", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "cli-notifier-"));
+    tempDirs.push(dir);
+    const out = join(dir, "notified.txt");
+    const notifier = await client!.callTool({
+      name: "mcp_sentinel_set_notifier_commands",
+      arguments: { commands: ["printf '%s' '{}' > " + out] },
+    });
+    expect(notifier.isError).toBeUndefined();
+    const notifierText = extractText(notifier);
+    const notifierId = notifierText.split("**notifier_id:** `")[1].split("`")[0];
+    expect(notifierId).toMatch(/^[0-9a-f-]{36}$/);
+    const result = await client!.callTool({
+      name: "mcp_sentinel_poll",
+      arguments: { server: "mock-ci", tool: "get_job_status", args: { job_id: "e2e-notify" }, interval: 1000, notifier_id: notifierId, until: { path: "status", is: "eq", value: "completed" } },
+    });
+    expect(result.isError).toBeUndefined();
+    expect(extractText(result)).toContain("Sentinel started.");
+    const id = extractText(result).match(/\*\*ID:\*\* `([^`]+)`/)?.[1];
+    expect(id).toBeTruthy();
+    let statusText = "";
+    // mock-ci needs ~16 polls to reach "completed"; allow up to 22s (> 90x250ms).
+    for (let i = 0; i < 90; i++) {
+      const status = await client!.callTool({
+        name: "mcp_sentinel_status",
+        arguments: { action: "status", id },
+      });
+      statusText = extractText(status);
+      if (statusText.includes("**Status:** completed")) break;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    expect(statusText).toContain("**Status:** completed");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(readFileSync(out, "utf8")).toContain("Sentinel Complete");
+  }, 30_000);
 });

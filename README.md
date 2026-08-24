@@ -21,7 +21,9 @@ exposes them:
 <codex|opencode|custom>` is a plain stdio MCP server that discovers the MCP
   servers the harness already exposes (`codex mcp list --json`, `opencode debug
 config`, or a `--mcp-config` file) and skips its own entry. No message
-  notification channel — agents collect results with attach/status/read.
+  notification channel by default — agents collect results with
+  attach/status/read, unless they opt into a command-based notifier via
+  `mcp_sentinel_set_notifier_commands`.
 
 The agent immediately sees the MCP servers it already configured for that
 harness; there is no sentinel-specific MCP config, mock server, or demo wiring

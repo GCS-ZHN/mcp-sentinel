@@ -117,6 +117,54 @@ the wait.
 
 Read raw poll outputs with offset/limit pagination.
 
+### `mcp_sentinel_set_notifier_commands`
+
+Install a command-based notification handler. The CLI has no harness message
+channel, so by default background sentinel completions are collected with
+`mcp_sentinel_attach` / `status` / `read`. This tool registers a notifier
+that, when a sentinel resolves, builds a notification message and runs each
+command template in order to deliver it.
+
+| Parameter | Type          | Default    | Description                         |
+| --------- | ------------- | ---------- | ----------------------------------- |
+| `commands` | string[] | _required_ | Command templates, each with exactly one `{}` placeholder for the message |
+
+Each template must contain exactly one `{}` placeholder where the notification
+message is injected. Every other argument must be a concrete literal. **Important:**
+environment variables are session-scoped, but the MCP server is a single global
+process shared by all sessions. A template runs via a shell inside that server
+process, so any `$VAR` in a template resolves against the **server process's**
+environment — not your session's. This tool never resolves environment variables.
+To target your own session (e.g. a Codex thread id), read the real value first and
+inline it as a literal. It can target an agent, a user, or anything else; the
+command need not actually send a message:
+
+```jsonc
+// 1) Read the real session value in your session, then inline it:
+//    echo $CODEX_THREAD_ID   -->  cd1234-...
+// 2) Register with the concrete value baked in:
+{ "commands": ["codex queue --thread \"cd1234-...\" --message \"{}\""] }
+
+// Just echo the message (no delivery at all).
+{ "commands": ["echo \"{}\""] }
+```
+
+
+Commands run sequentially. A failing command is logged but never affects the
+sentinel task state — the task remains queryable via the other tools.
+
+The call returns a `notifier_id` (a uuid). Because the MCP server is loaded
+globally (shared by every session), each session's command list is registered
+under its own id; a single dispatcher reads the task's `sessionID` (set from
+the `notifier_id` you pass to `mcp_sentinel_poll`) and runs only that session's
+commands. This keeps notifications from leaking across sessions. Pass the
+`notifier_id` to `mcp_sentinel_poll` to associate the two:
+
+```jsonc
+{ "server": "mock-ci", "tool": "get_job_status", "args": { "job_id": "e2e" }, "interval": 1000, "notifier_id": "<uuid from above>", "until": { "path": "status", "is": "eq", "value": "completed" } }
+```
+
+
 ## Condition model
 
 Conditions are pure declarative data:
