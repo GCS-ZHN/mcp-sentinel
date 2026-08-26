@@ -21,3 +21,6 @@ package/
 e2e-results/
 packages/cli/cli.js
 .codex-marketplace/
+
+# Agent skill eval workspaces (skill-validator outputs)
+skills/*-workspace/

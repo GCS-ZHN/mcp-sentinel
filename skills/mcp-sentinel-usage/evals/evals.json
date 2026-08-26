@@ -1,0 +1,75 @@
+{
+  "skill_name": "mcp-sentinel-usage",
+  "evals": [
+    {
+      "id": 1,
+      "harness": "cli",
+      "prompt": "mock-ci 服务器上有个 get_job_status 工具可以查作业状态，job id 用 eval-happy。这个作业要跑约 8 个阶段，最终 status 会变成 completed。帮我等它跑完，然后汇报最终的 status 和 progress。不要自己一遍遍轮询浪费 token——让哨兵在后台等，等完了再汇报。",
+      "expected_output": "The agent uses the sentinel to wait for the job (submit a poll, wait via attach or notification), never manually loops the status tool, and reports status completed with progress 100.",
+      "expectations": [
+        "The agent used the sentinel (mcp_sentinel_poll) to wait for the job",
+        "The agent did not manually loop the job-status tool",
+        "The agent reported the job as completed with progress 100",
+        "The agent used the correct args key (job_id) for the job-status tool on the first attempt"
+      ]
+    },
+    {
+      "id": 2,
+      "harness": "cli",
+      "prompt": "mock-ci 服务器上有个 get_job_status 工具可以查作业状态，job id 用 eval-debug。我同事说这个作业的状态字段叫 statu，但我怀疑其实是 status。请先用 statu 作为条件字段帮我等作业完成；如果哨兵等不到结果，用哨兵自己的工具查清楚它停在哪、为什么停，然后修正再等一次，把排查过程和最终结果告诉我。",
+      "expected_output": "The first sentinel attempt uses the misspelled field (statu), surfaces an error (missing key), the agent diagnoses it with status/read, corrects the condition, reruns, and reports completed.",
+      "expectations": [
+        "The first sentinel attempt used the misspelled field (statu) and surfaced an error (missing key), not silent polling or success",
+        "The agent diagnosed the failure with the sentinel's status/read tools",
+        "A corrected attempt (status) completed and the agent reported status completed"
+      ]
+    },
+    {
+      "id": 3,
+      "harness": "cli",
+      "prompt": "帮我配一个完成通知：等 mock-ci 的作业 eval-notify 跑完时，自动把完成通知打印出来，这样我不需要一直盯着。配好通知之后让哨兵在后台等，完成后把收到的通知内容告诉我。（作业状态用 get_job_status 查，最终 status 是 completed。）",
+      "expected_output": "The agent installs a command-based completion notifier, associates its id with the poll, and reports the delivered completion notification.",
+      "expectations": [
+        "The agent installed a command-based notifier (mcp_sentinel_set_notifier_commands)",
+        "The agent associated the notifier id with the poll",
+        "The agent reported a completion notification message",
+        "The reported notification preserved the literal ## Sentinel Complete heading"
+      ]
+    },
+    {
+      "id": 4,
+      "harness": "opencode-plugin",
+      "prompt": "mock-ci 上有一个 CI 作业正在跑，job id 是 eval-plugin-happy，它最终 status 会变成 completed（get_job_status 可以查状态）。帮我等它跑完，然后汇报最终的 status 和 progress。不要自己一遍遍轮询，让哨兵在后台等，等完再汇报。",
+      "expected_output": "The agent uses the sentinel plugin tools to wait for the job (poll, then rely on the plugin's completion push or attach), does not manually loop, and reports status completed with progress 100.",
+      "expectations": [
+        "The agent used the sentinel to wait for the job instead of manual polling",
+        "The agent did not manually loop the job-status tool",
+        "The agent reported the job as completed with progress 100",
+        "The agent set a short poll interval (<= 2000 ms) so the job completed quickly"
+      ]
+    },
+    {
+      "id": 5,
+      "harness": "deepseek-harness",
+      "prompt": "mock-ci 上有一个 CI 作业正在跑，job id 是 eval-dsh-happy，它最终 status 会变成 completed（get_job_status 可以查状态）。帮我等它跑完，然后汇报最终的 status 和 progress。不要自己一遍遍轮询，让哨兵在后台等，等完再汇报。",
+      "expected_output": "The agent uses the sentinel plugin tools (external-invoker mode over the harness MCP bridge) to wait for the job, does not manually loop, and reports status completed with progress 100.",
+      "expectations": [
+        "The agent used the sentinel to wait for the job instead of manual polling",
+        "The agent did not manually loop the job-status tool",
+        "The agent reported the job as completed with progress 100",
+        "The agent set a short poll interval (<= 2000 ms) so the job completed quickly"
+      ]
+    },
+    {
+      "id": 6,
+      "harness": "codex-cli",
+      "prompt": "我在 Codex 会话里。mock-ci 上有个作业 eval-codex-notify 在跑（get_job_status 查状态，最终 status 是 completed）。帮我配一个 Codex 自我通知：作业跑完时自动用 codex queue 把完成通知发回当前线程，这样我能在这个会话里直接收到。配好后让哨兵在后台等，把收到的通知内容告诉我。注意：通知命令里的线程 id 要写成当前会话的实际 id，不要指望环境变量能自动带过去（哨兵的命令 shell 里解析不到你的环境变量）。",
+      "expected_output": "The agent reads the current thread id (echo CODEX_THREAD_ID), inlines it as a literal into a codex queue --thread <id> --message '{}' template, registers it via mcp_sentinel_set_notifier_commands, passes the notifier_id to mcp_sentinel_poll, and the sentinel completion message (## Sentinel Complete) is delivered to the thread via codex queue.",
+      "expectations": [
+        "The agent registered a codex queue notifier with a real inlined thread id (not a $VAR reference)",
+        "The agent passed the returned notifier_id to mcp_sentinel_poll",
+        "The sentinel completion message was delivered to the thread via codex queue (Sentinel Complete text found in the session store)"
+      ]
+    }
+  ]
+}
