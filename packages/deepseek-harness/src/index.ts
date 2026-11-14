@@ -15,11 +15,14 @@
  * @module
  */
 
+import { createHash } from "node:crypto";
+
 import type { Context } from "@deepseek-ai/cordis";
 import { defineTool } from "@deepseek-ai/dsh-tools";
-import type { ToolExecutionResult } from "@deepseek-ai/dsh-tools";
+import type { ToolBatchResult, ToolExecutionResult } from "@deepseek-ai/dsh-tools";
 import type { Agent } from "@deepseek-ai/dsh-agent";
-import { CallId, createUserMessage } from "@deepseek-ai/dsh-llm";
+import { ToolCallId, boundContextSummary, createUserMessage } from "@deepseek-ai/dsh-llm";
+import type { ContextFormed } from "@deepseek-ai/dsh-llm";
 import { SessionId } from "@deepseek-ai/dsh-session";
 import {
   ACTION_DESCRIPTION,
@@ -64,6 +67,14 @@ export const name = "mcp-sentinel";
 /** Services required by this plugin: the agent registry and the tool registry. */
 export const inject = ["agents", "tools"];
 
+// Harness 0.2.x has no shared catch-all source kind; each producer declares
+// its own. The completion notice is a one-off account of the sentinel resolving.
+declare module "@deepseek-ai/dsh-llm" {
+  interface MessageSourceMap {
+    "mcp-sentinel": { kind: "mcp-sentinel" } & ContextFormed;
+  }
+}
+
 /** Canonical string output shared by every sentinel tool (markdown text). */
 const textOutput = {
   schema: { type: "string" as const },
@@ -91,6 +102,50 @@ export function extractToolResult(result: ToolExecutionResult): unknown {
     return value.structuredContent;
   }
   return parseMcpContent(result.content);
+}
+
+/**
+ * Extract the single sentinel call from a Harness 0.2.x execution batch.
+ *
+ * `ctx.tools.execute` now accepts a raw call batch and returns one settled
+ * outcome per call. The sentinel always submits exactly one call, so an empty
+ * batch means the host violated that contract and must fail loudly instead of
+ * polling `undefined` forever.
+ */
+export function extractSingleResult(batch: ToolBatchResult): unknown {
+  const settled = batch.results[0];
+  if (settled === undefined) {
+    throw new Error("tool execution returned no result for the sentinel call");
+  }
+  return extractToolResult(settled.result);
+}
+
+/** DeepSeek Harness function-name contract: only `[A-Za-z0-9_-]`, at most 64 chars. */
+const MCP_TOOL_NAME_MAX = 64;
+
+/** Characters the Harness replaces when an MCP identity is used as a tool name. */
+const MCP_TOOL_NAME_INVALID = /[^A-Za-z0-9_-]/g;
+
+/**
+ * Resolve the Harness tool-registry name for an MCP tool.
+ *
+ * `@deepseek-ai/dsh-mcp-client` registers tools as
+ * `mcp__<serverName>__<rawName>` when that identity is already a valid
+ * DeepSeek function name. Otherwise it replaces invalid characters and
+ * truncates to 64 chars, appending a 12-hex-char SHA-256 hash of
+ * `serverName\0rawName` so distinct MCP identities never collide. This mirrors
+ * `publicToolName` in `dsh-mcp-client/src/tools.ts` (not exported from the
+ * package entrypoint); the sentinel must address the same registered name or
+ * every call on a dotted/slashed tool name would resolve as `UNKNOWN_TOOL`.
+ */
+export function mcpToolName(server: string, tool: string): string {
+  const joined = `mcp__${server}__${tool}`;
+  const normalized = joined.replace(MCP_TOOL_NAME_INVALID, "_");
+  if (normalized === joined && normalized.length <= MCP_TOOL_NAME_MAX) {
+    return normalized;
+  }
+  const hash = createHash("sha256").update(`${server}\0${tool}`).digest("hex").slice(0, 12);
+  return `${normalized.slice(0, MCP_TOOL_NAME_MAX - 12 - 1)}_${hash}`;
 }
 
 /**
@@ -190,10 +245,9 @@ export function apply(ctx: Context): void {
         createUserMessage({
           content: [{ type: "text", text }],
           source: {
-            kind: "plugin",
-            plugin: "mcp-sentinel",
+            kind: "mcp-sentinel",
             form: "notice",
-            summary: `sentinel ${task.id} ${event}`,
+            summary: boundContextSummary(`sentinel ${task.id} ${event}`),
           },
         })
       );
@@ -206,16 +260,30 @@ export function apply(ctx: Context): void {
   // External-invoker mode: call the MCP tools already registered by
   // `@deepseek-ai/dsh-mcp-client` through the harness tool registry instead of
   // owning MCP connections in the core. The server name maps to the
-  // `serverName` of an mcp-client instance, and the tool name to its raw MCP
-  // tool name (`mcp__<serverName>__<rawName>`).
-  const invoke: ToolInvoker = async (server, tool, args) => {
-    const result = await ctx.tools.execute({
-      callId: CallId(`sentinel-${Date.now()}-${Math.random().toString(36).slice(2)}`),
-      name: `mcp__${server}__${tool}`,
-      arguments: args,
+  // `serverName` of an mcp-client instance, and the tool name to the public
+  // registry name derived from its raw MCP name. Passing the originating agent
+  // keeps the call in that agent's executor/tool scope; it is absent only for
+  // agentless programmatic polls.
+  const invoke: ToolInvoker = async (server, tool, args, context) => {
+    const agent =
+      context?.sessionID === undefined ? undefined : ctx.agents.get(SessionId(context.sessionID));
+    const callArguments = JSON.stringify(args);
+    if (callArguments === undefined) {
+      throw new Error(`sentinel arguments for ${server}/${tool} are not JSON-serializable`);
+    }
+    const batch = await ctx.tools.execute({
+      calls: [
+        {
+          type: "tool-call",
+          id: ToolCallId(`sentinel-${Date.now()}-${Math.random().toString(36).slice(2)}`),
+          name: mcpToolName(server, tool),
+          arguments: callArguments,
+        },
+      ],
       signal: new AbortController().signal,
+      ...(agent === undefined ? {} : { agent }),
     });
-    return extractToolResult(result);
+    return extractSingleResult(batch);
   };
 
   // doc: https://deepseek-harness.github.io/deepseek-harness/en/reference/subsystems/tools#the-unified-json-value-schema-dsl

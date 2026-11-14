@@ -181,6 +181,19 @@ export interface McpConfig {
 export type ServerResolver = (name: string) => McpServerConfig | null;
 
 /**
+ * Per-invocation context the core passes to a {@link ToolInvoker}.
+ *
+ * Harnesses that resolve MCP calls through an agent-scoped tool registry need
+ * the originating session to select the right executor and tool scope. The
+ * core has no host types, so this is a plain, optional data field; connection-
+ * pool invokers simply ignore it.
+ */
+export interface ToolInvocationContext {
+  /** Session that started the poll, when an agent initiated it. */
+  sessionID?: string;
+}
+
+/**
  * Invoke an MCP tool and return its parsed result.
  *
  * This is the single seam the engine uses to talk to MCP. Two harness
@@ -191,8 +204,8 @@ export type ServerResolver = (name: string) => McpServerConfig | null;
  *    {@link makeConnectionInvoker} from a {@link ServerResolver}.
  * 2. **External-invoker mode** — the harness already owns MCP (e.g. its own
  *    MCP bridge registered tools on a tool registry); the harness passes its
- *    own `(server, tool, args) => result` function and the core never opens a
- *    connection.
+ *    own `(server, tool, args, context) => result` function and the core never
+ *    opens a connection.
  *
  * The returned value must already be the canonical result the condition
  * evaluator inspects: a parsed JSON object, or a raw non-JSON value for tools
@@ -201,5 +214,6 @@ export type ServerResolver = (name: string) => McpServerConfig | null;
 export type ToolInvoker = (
   server: string,
   tool: string,
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
+  context?: ToolInvocationContext
 ) => Promise<unknown>;

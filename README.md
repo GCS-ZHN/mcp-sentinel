@@ -220,13 +220,19 @@ package layered on top of it.
 ### Core / harness contract
 
 The core exposes one **uniform seam** — `ToolInvoker`, a
-`(server, tool, args) => Promise<unknown>` function the engine calls once per
-poll — so each harness can plug in its own MCP access strategy without the core
-knowing which host it is running under.
+`(server, tool, args, context?) => Promise<unknown>` function the engine calls
+once per poll — so each harness can plug in its own MCP access strategy without
+the core knowing which host it is running under. `context.sessionID` identifies
+the originating agent when one started the poll.
 
 ```ts
 // core — the uniform interface (harness-agnostic)
-type ToolInvoker = (server: string, tool: string, args: Record<string, unknown>) => Promise<unknown>;
+type ToolInvoker = (
+  server: string,
+  tool: string,
+  args: Record<string, unknown>,
+  context?: { sessionID?: string }
+) => Promise<unknown>;
 
 // the core engine accepts an invoker instead of reading host config itself
 startSentinel(request, invoke: ToolInvoker): Promise<string>;
@@ -240,8 +246,8 @@ There are two ways to build the invoker:
    lifecycle.
 2. **External-invoker mode** — the host already owns MCP (e.g. its own bridge
    registered tools on a tool registry); the harness passes its own
-   `(server, tool, args) => result` function and the core never opens a
-   connection.
+   `(server, tool, args, context?) => result` function and the core never opens
+   a connection.
 
 **MCP config discovery is the harness's job** — different hosts fetch it
 differently (OpenCode via `client.config.get().data` `mcp.*` flat keys, Codex
@@ -261,8 +267,8 @@ has no opinion on how a notification is rendered or pushed.
    with a dependency on `@gcszhn/mcp-sentinel-core`.
 2. Build a `ToolInvoker`: either parse the host's MCP config into a `McpConfig`
    and wrap it with `makeConnectionInvoker(makeServerResolver(...))`
-   (connection-pool mode), or pass a host-owned `(server, tool, args) => result`
-   function (external-invoker mode).
+   (connection-pool mode), or pass a host-owned
+   `(server, tool, args, context?) => result` function (external-invoker mode).
 3. Register the four tools, delegating to the core's `handlePoll` /
    `handleStatus` / `handleAttach` / `handleRead` handlers.
 4. Install the notifier with `setNotifier`, pushing completions through the
