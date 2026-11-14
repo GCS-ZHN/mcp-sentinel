@@ -439,6 +439,91 @@ describe("sentinel-manager", () => {
     expect(last).not.toContain("Poll #1");
   });
 
+  it("keeps a cancelled task cancelled when a poll result arrives afterwards", async () => {
+    const events: string[] = [];
+    let releasePoll: (value: unknown) => void = () => {};
+    let invokeStarted = false;
+
+    setNotifier((_task, event) => {
+      events.push(event);
+    });
+
+    const externalInvoke = () => {
+      invokeStarted = true;
+      return new Promise<unknown>((resolve) => {
+        releasePoll = resolve;
+      });
+    };
+
+    const id = await startSentinel(
+      {
+        server: "s",
+        tool: "t",
+        args: {},
+        interval: 1000,
+        until: { path: "status", is: "eq", value: "completed" },
+        sessionID: "s1",
+      },
+      externalInvoke
+    );
+
+    // wait until the first poll is actually awaiting the invoker
+    while (!invokeStarted) await new Promise((r) => setTimeout(r, 10));
+    expect(cancelSentinel(id)).toBe(true);
+
+    // the in-flight poll returns a result that would satisfy the condition
+    releasePoll({ status: "completed" });
+    await new Promise((r) => setTimeout(r, 100));
+
+    const task = getSentinelTask(id);
+    expect(task?.status).toBe("cancelled");
+    expect(task?.pollCount).toBe(0);
+    expect(task?.lastResult).toBeNull();
+    expect(task?.resolvedAt).toBeDefined();
+    expect(events).toEqual([]);
+  });
+
+  it("keeps a cancelled task cancelled when a poll error arrives afterwards", async () => {
+    const events: string[] = [];
+    let rejectPoll: (err: unknown) => void = () => {};
+    let invokeStarted = false;
+
+    setNotifier((_task, event) => {
+      events.push(event);
+    });
+
+    const externalInvoke = () => {
+      invokeStarted = true;
+      return new Promise<unknown>((_resolve, reject) => {
+        rejectPoll = reject;
+      });
+    };
+
+    const id = await startSentinel(
+      {
+        server: "s",
+        tool: "t",
+        args: {},
+        interval: 1000,
+        until: { path: "status", is: "eq", value: "completed" },
+        sessionID: "s1",
+      },
+      externalInvoke
+    );
+
+    while (!invokeStarted) await new Promise((r) => setTimeout(r, 10));
+    expect(cancelSentinel(id)).toBe(true);
+
+    rejectPoll(new Error("MCP error -32000: Connection closed"));
+    await new Promise((r) => setTimeout(r, 100));
+
+    const task = getSentinelTask(id);
+    expect(task?.status).toBe("cancelled");
+    expect(task?.error).toBeUndefined();
+    expect(task?.pollCount).toBe(0);
+    expect(events).toEqual([]);
+  });
+
   it("times out when the deadline elapses before the condition is met", async () => {
     const externalInvoke = async () => ({ status: "running" });
     const id = await startSentinel(

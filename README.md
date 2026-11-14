@@ -11,9 +11,9 @@ servers of its own. Installing the plugin is the whole setup — it discovers an
 reuses the MCP servers the harness already has, in whichever way that harness
 exposes them:
 
-- **From the host's MCP config** — OpenCode. The plugin reads
-  `client.config.get().mcp` and hands the resolved servers to the core, which
-  owns the connection lifecycle. No extra MCP setup.
+- **From the host's MCP config** — OpenCode (V1 and V2). The plugin reads the
+  host's configured MCP servers and hands them to the core, which owns the
+  connection lifecycle. No extra MCP setup.
 - **Through the harness SDK** — DeepSeek Harness. The plugin calls the
   `mcp__<server>__<tool>` tools already registered by
   `@deepseek-ai/dsh-mcp-client` via `ctx.tools.execute`. No extra MCP setup.
@@ -36,6 +36,7 @@ Install instructions and per-harness details live in each plugin's own README.
 | Harness           | Plugin package                                                                                                               | Docs                                          |
 | ----------------- | ---------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
 | OpenCode          | [`@gcszhn/mcp-sentinel-opencode-plugin`](https://www.npmjs.com/package/@gcszhn/mcp-sentinel-opencode-plugin)                 | [README](packages/opencode/README.md)         |
+| OpenCode 2 (V2)   | [`@gcszhn/mcp-sentinel-opencode2-plugin`](https://www.npmjs.com/package/@gcszhn/mcp-sentinel-opencode2-plugin)               | [README](packages/opencode2/README.md)        |
 | DeepSeek Harness  | [`@gcszhn/mcp-sentinel-deepseek-harness-plugin`](https://www.npmjs.com/package/@gcszhn/mcp-sentinel-deepseek-harness-plugin) | [README](packages/deepseek-harness/README.md) |
 | Any harness (CLI) | [`@gcszhn/mcp-sentinel-cli`](https://www.npmjs.com/package/@gcszhn/mcp-sentinel-cli)                                         | [README](packages/cli/README.md)              |
 
@@ -209,13 +210,14 @@ package layered on top of it.
 
 ### Layers
 
-| Package                       | Purpose                                                                                    | Published as                                   |
-| ----------------------------- | ------------------------------------------------------------------------------------------ | ---------------------------------------------- |
-| `packages/core`               | sentinel engine, tool handlers, condition evaluator, connection pool, env, logger, types   | `@gcszhn/mcp-sentinel-core`                    |
-| `packages/opencode`           | OpenCode adapter: `tool()` definitions + `client.config.get()` + `session.promptAsync`     | `@gcszhn/mcp-sentinel-opencode-plugin`         |
-| `packages/deepseek-harness`   | DeepSeek Harness adapter: external-invoker mode via `ctx.tools.execute` + `Agent.followup` | `@gcszhn/mcp-sentinel-deepseek-harness-plugin` |
-| `packages/cli`                | harness-agnostic MCP stdio CLI (`mcp-sentinel mcp --harness …`)                            | `@gcszhn/mcp-sentinel-cli`                     |
-| `packages/<harness>` (future) | one entry per host, e.g. `claude-code`                                                     | `@gcszhn/mcp-sentinel-<harness>-plugin`        |
+| Package                       | Purpose                                                                                     | Published as                                   |
+| ----------------------------- | ------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| `packages/core`               | sentinel engine, tool handlers, condition evaluator, connection pool, env, logger, types    | `@gcszhn/mcp-sentinel-core`                    |
+| `packages/opencode`           | OpenCode adapter: `tool()` definitions + `client.config.get()` + `session.promptAsync`      | `@gcszhn/mcp-sentinel-opencode-plugin`         |
+| `packages/opencode2`          | OpenCode 2 (V2) adapter: `Plugin.define` + `ctx.tool` / `ctx.mcp` + `ctx.session.synthetic` | `@gcszhn/mcp-sentinel-opencode2-plugin`        |
+| `packages/deepseek-harness`   | DeepSeek Harness adapter: external-invoker mode via `ctx.tools.execute` + `Agent.followup`  | `@gcszhn/mcp-sentinel-deepseek-harness-plugin` |
+| `packages/cli`                | harness-agnostic MCP stdio CLI (`mcp-sentinel mcp --harness …`)                             | `@gcszhn/mcp-sentinel-cli`                     |
+| `packages/<harness>` (future) | one entry per host, e.g. `claude-code`                                                      | `@gcszhn/mcp-sentinel-<harness>-plugin`        |
 
 ### Core / harness contract
 
@@ -250,9 +252,10 @@ There are two ways to build the invoker:
    a connection.
 
 **MCP config discovery is the harness's job** — different hosts fetch it
-differently (OpenCode via `client.config.get().data` `mcp.*` flat keys, Codex
-via `codex mcp list --json`, a `--mcp-config` file, …), and external-invoker
-hosts skip config discovery entirely.
+differently (OpenCode V1 via `client.config.get().data` `mcp.*` flat keys,
+OpenCode V2 via `ctx.mcp.transform`, Codex via `codex mcp list --json`, a
+`--mcp-config` file, …), and external-invoker hosts skip config discovery
+entirely.
 
 The core's second seam is the notifier: a harness installs a completion
 callback with `setNotifier(task, event)`, delivered through the host's message
@@ -322,6 +325,13 @@ packages/
       index.ts                  # tool() definitions + promptAsync notifier
       config.ts                 # parseOpencodeMcpConfig (opencode `mcp` block) → McpConfig
     tests/
+  opencode2/                    # @gcszhn/mcp-sentinel-opencode2-plugin (OpenCode 2 / V2)
+    src/
+      index.ts                  # Plugin.define + ctx.tool.transform + synthetic notifier
+      config.ts                 # V2 mcp.servers → McpConfig + auth preflight
+      host-registry.ts          # multi-instance notification/log routing
+      notify.ts                 # completion / failure / timeout notification text
+    tests/
   deepseek-harness/             # @gcszhn/mcp-sentinel-deepseek-harness-plugin
     src/
       index.ts                  # external-invoker mode: ctx.tools.execute + Agent.followup
@@ -339,8 +349,8 @@ packages/
 
 > **Build order**: each package builds independently, but the adapters
 > type-check and run against `@gcszhn/mcp-sentinel-core`'s published `dist/`.
-> Run `bun run build` (core first, then opencode, deepseek-harness, cli)
-> before `bun test`.
+> Run `bun run build` (core first, then opencode, opencode2, deepseek-harness,
+> cli) before `bun test`.
 
 ## License
 

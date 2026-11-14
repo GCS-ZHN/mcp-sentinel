@@ -124,6 +124,18 @@ export async function startSentinel(
         sessionID: request.sessionID,
       });
 
+      // The task can be cancelled (or otherwise resolved) while `invoke` is
+      // in flight. Discard the outcome instead of resurrecting it as
+      // `completed`/`error` — a cancelled sentinel must stay cancelled.
+      if (t.status !== "polling") {
+        logDebug(`Discarding poll result for ${t.status} task`, {
+          id,
+          server: request.server,
+          tool: request.tool,
+        });
+        return;
+      }
+
       t.pollCount++;
       t.lastResult = result;
       t.pollLog.push({ index: t.pollCount, time: Date.now(), result });
@@ -144,6 +156,17 @@ export async function startSentinel(
         return;
       }
     } catch (err) {
+      // A cancel may have landed while `invoke` was in flight; don't turn a
+      // cancelled sentinel into an errored one.
+      if (t.status !== "polling") {
+        logDebug(`Discarding poll error for ${t.status} task`, {
+          id,
+          server: request.server,
+          tool: request.tool,
+          error: String(err),
+        });
+        return;
+      }
       // callTool already tried reconnection. If we still get an error here,
       // it's genuinely unrecoverable — mark the sentinel as errored.
       t.status = "error";
@@ -160,7 +183,7 @@ export async function startSentinel(
       await notify(t, "failed");
     }
 
-    if (timeout && Date.now() - t.createdAt >= timeout) {
+    if (t.status === "polling" && timeout && Date.now() - t.createdAt >= timeout) {
       t.status = "timeout";
       t.resolvedAt = Date.now();
       stopTimers(id);
@@ -192,7 +215,9 @@ export async function startSentinel(
  */
 async function resolveSentinel(id: string, result: unknown): Promise<void> {
   const task = activeSentinels.get(id);
-  if (!task) return;
+  // Only a still-polling task may resolve. A task cancelled (or otherwise
+  // resolved) while the poll was in flight must keep its terminal status.
+  if (!task || task.status !== "polling") return;
 
   task.status = "completed";
   task.resolvedAt = Date.now();

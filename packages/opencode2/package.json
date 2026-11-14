@@ -1,0 +1,45 @@
+{
+  "name": "@gcszhn/mcp-sentinel-opencode2-plugin",
+  "version": "1.5.0",
+  "description": "OpenCode 2 (V2) plugin that acts as a sentinel between the AI agent and MCP servers — polling long-running tasks on the agent's behalf so that token-costly status loops never enter the LLM inference path",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "rm -rf dist && bunx tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\""
+  },
+  "dependencies": {
+    "@gcszhn/mcp-sentinel-core": "1.5.0",
+    "@opencode/plugin": "2.3.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.8",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.3"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/GCS-ZHN/mcp-sentinel.git",
+    "directory": "packages/opencode2"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "package.json",
+    "README.md",
+    "LICENSE"
+  ]
+}

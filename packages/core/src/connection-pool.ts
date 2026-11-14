@@ -98,11 +98,34 @@ const pendingConnections = new Map<string, Promise<Client>>();
  *
  * For remote servers: `"name@remote:http://host/mcp"`
  * For local servers:  `"name@local:bun server.ts --port 0"`
+ *
+ * The key covers every field that changes what the spawned/connected server
+ * actually is — `cwd` and `env` for local servers, headers for remote ones —
+ * so editing the host MCP config yields a new connection instead of silently
+ * reusing one built from the old config.
  */
 function serverKey(name: string, config: McpServerConfig): string {
-  if (config.type === "remote") return `${name}@remote:${(config as McpRemoteConfig).url}`;
+  if (config.type === "remote") {
+    const remoteConfig = config as McpRemoteConfig;
+    const headers = remoteConfig.headers ? stableObjectKey(remoteConfig.headers) : "";
+    return `${name}@remote:${remoteConfig.url}${headers ? `|headers:${headers}` : ""}`;
+  }
   const localConfig = config as McpLocalConfig;
-  return `${name}@local:${localConfig.command.join(" ")}`;
+  const parts = [`${name}@local:${localConfig.command.join(" ")}`];
+  // `cwd` and `env` change what the child process can do, so they are part of
+  // the identity: a config fix (e.g. adding a project `cwd`) must not keep
+  // reusing the connection cached under the previous configuration.
+  if (localConfig.cwd) parts.push(`cwd:${localConfig.cwd}`);
+  if (localConfig.env) parts.push(`env:${stableObjectKey(localConfig.env)}`);
+  return parts.join("|");
+}
+
+/** Deterministic key for a string map, independent of insertion order. */
+function stableObjectKey(value: Record<string, string>): string {
+  return Object.keys(value)
+    .sort()
+    .map((key) => `${key}=${value[key]}`)
+    .join(",");
 }
 
 /**
@@ -132,6 +155,17 @@ async function createTransport(config: McpServerConfig) {
     args,
     env: localConfig.env,
     cwd: localConfig.cwd,
+    // Capture child stderr instead of inheriting the host's fd 2. A host whose
+    // stderr is a dead descriptor / closed socket can take the child process
+    // down with an opaque "Connection closed" MCP error; forwarding the text to
+    // the logger keeps the failure diagnosable.
+    stderr: "pipe",
+  });
+  transport.stderr?.on("data", (chunk: Buffer | string) => {
+    const text = String(chunk).trim();
+    if (text) {
+      logDebug(`MCP server stderr: ${text}`);
+    }
   });
   return transport;
 }
