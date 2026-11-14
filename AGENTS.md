@@ -242,6 +242,11 @@ Judge config: `DEEPSEEK_API_KEY` (or `~/.dsh/.credentials.yaml`),
 - Logger: all 4 levels, unset client, client.app.log throws
 - TTL cleanup: error task cleanup, cancelled task cleanup, no cleanup when unset
 - `cleanup()` clears both interval timers and TTL timeout timers
+- Cancellation race: a poll result or poll error arriving **after** a cancel
+  must leave the task `cancelled` with `pollCount === 0` and emit no
+  `completed` / `failed` notification
+- Connection cache identity: changing `cwd`/`env` (local) or `url`/`headers`
+  (remote) must yield a new client instead of reusing the stale one
 
 ### End-to-end tests must cover
 

@@ -170,6 +170,29 @@ describe("connection manager edge cases", () => {
     await disconnectAll();
     expect(getConnectionCount()).toBe(0);
   });
+
+  it("reconnects when local cwd or env changes (config fix must not reuse stale client)", async () => {
+    await disconnectAll();
+    const mockServer = join(import.meta.dir, "mock-mcp-server.ts");
+    const base = { type: "local" as const, command: ["bun", mockServer] };
+
+    const baseClient = await getOrCreateClient("key-test", base);
+    expect(await getOrCreateClient("key-test", base)).toBe(baseClient);
+
+    const cwdClient = await getOrCreateClient("key-test", { ...base, cwd: import.meta.dir });
+    const envClient = await getOrCreateClient("key-test", { ...base, env: { SENTINEL_TEST: "1" } });
+
+    expect(cwdClient).not.toBe(baseClient);
+    expect(envClient).not.toBe(baseClient);
+    expect(envClient).not.toBe(cwdClient);
+    expect(getConnectionCount()).toBe(3);
+
+    // same full config still reuses its cached client
+    expect(await getOrCreateClient("key-test", { ...base, cwd: import.meta.dir })).toBe(cwdClient);
+
+    await disconnectAll();
+    expect(getConnectionCount()).toBe(0);
+  });
 });
 
 // --- Concurrency: dual sessions sharing a cached client ---

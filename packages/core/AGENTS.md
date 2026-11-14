@@ -20,6 +20,27 @@ versioning, CI, and the project-wide tool/testing standards.
 - Public API changes ripple to every adapter (types, handlers,
   `descriptions.ts` consts): keep all three compiling and their READMEs in sync.
 
+## Connection cache identity
+
+`serverKey` in `connection-pool.ts` covers every config field that changes what
+the child process or connection actually is: `command`, `cwd`, `env` for local
+servers; `url`, `headers` for remote ones. A field added to `McpServerConfig`
+that affects behavior must be added to the key — otherwise a config fix keeps
+silently reusing the client built from the old config (e.g. `cwd` without an
+index → server exits → "Connection closed" forever).
+
+Stdio children get `stderr: "pipe"` and their stderr is forwarded to the debug
+logger; never let a child inherit the host's fd 2, which may be a dead
+descriptor in daemon-hosted harnesses.
+
+## Cancellation
+
+`poll()` re-checks `task.status === "polling"` after every `await`. A cancel
+that lands while `invoke` is in flight must not be resurrected into
+`completed`/`error`: discard the result, leave `pollCount` untouched, and never
+notify. `resolveSentinel` refuses non-polling tasks. Unit tests in
+`sentinel-manager.test.ts` cover both the late-result and late-error cases.
+
 ## Shared fixtures other packages depend on
 
 - `tests/mock-mcp-server.ts` is the E2E fixture for every harness (opencode
