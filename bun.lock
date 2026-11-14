@@ -19,7 +19,7 @@
         "mcp-sentinel": "./cli.js",
       },
       "dependencies": {
-        "@gcszhn/mcp-sentinel-core": "1.2.0",
+        "@gcszhn/mcp-sentinel-core": "1.5.0",
         "@modelcontextprotocol/sdk": "^1.25.0",
         "zod": "^4.3.6",
       },
@@ -70,7 +70,7 @@
       "name": "@gcszhn/mcp-sentinel-opencode-plugin",
       "version": "1.5.0",
       "dependencies": {
-        "@gcszhn/mcp-sentinel-core": "workspace:*",
+        "@gcszhn/mcp-sentinel-core": "1.5.0",
         "@opencode-ai/plugin": "1.3.13",
         "@opencode-ai/sdk": "1.3.13",
       },
@@ -82,9 +82,9 @@
     },
     "packages/opencode2": {
       "name": "@gcszhn/mcp-sentinel-opencode2-plugin",
-      "version": "1.4.0",
+      "version": "1.5.0",
       "dependencies": {
-        "@gcszhn/mcp-sentinel-core": "1.4.0",
+        "@gcszhn/mcp-sentinel-core": "1.5.0",
         "@opencode/plugin": "2.3.0",
       },
       "devDependencies": {
@@ -863,7 +863,7 @@
 
     "@deepseek-ai/dsh-user-approval/@deepseek-ai/schemastery": ["@deepseek-ai/schemastery@3.18.1", "", { "dependencies": { "@deepseek-ai/cosmokit": "^1.8.2", "@standard-schema/spec": "^1.1.0" } }, "sha512-Qn0FCSwCQnpnj6SB31I6i2sIKgKWnkbJM8O0EU91Gv2UsYVvtZTl6IA0sCwk2e2MZf5S8w5hpq9QkeVvK9qwxg=="],
 
-    "@gcszhn/mcp-sentinel-opencode2-plugin/@gcszhn/mcp-sentinel-core": ["@gcszhn/mcp-sentinel-core@1.4.0", "", { "dependencies": { "@modelcontextprotocol/sdk": "^1.25.0" } }, "sha512-b0hxSC7F+Iy1QhfVz9/QTbHjeh2N+W54uojZbf2trkhKioulv+zJQdSwLlYgPjB627tjk0QrBNyZRpiQJ6nuug=="],
+    "@gcszhn/mcp-sentinel-core/zod": ["zod@4.6.6", "", {}, "sha512-4UmzQUF5fxvfcYHlbjBmejU+w+hbDnWFx4aS8kBx7nPBHcO2SqPbpAG8snbdg+Xse4pRefR98hgjFgIMCI/UhA=="],
 
     "@isaacs/cliui/string-width": ["string-width@5.1.2", "", { "dependencies": { "eastasianwidth": "^0.2.0", "emoji-regex": "^9.2.2", "strip-ansi": "^7.0.1" } }, "sha512-HnLOCR3vjcY8beoNLtcjZ5/nxn2afmME6lhrDrebokqMap+XbeW8n9TXpPDOqdGK5qcI3oT0GKTW6wC7EMiVqA=="],
 
@@ -923,7 +923,11 @@
 
     "@deepseek-ai/dsh-system-prompt/@deepseek-ai/schemastery/@deepseek-ai/cosmokit": ["@deepseek-ai/cosmokit@1.8.2", "", {}, "sha512-muBOKtSrUKU5m/xpq8ZXWL6hQ/jgd4PhU2PqH97bcxIiLEJfNwZOGQEx4t/aS/GgxRAR+ra9pMHPMtTHU4sqqA=="],
 
+    "@deepseek-ai/dsh-user-approval/@deepseek-ai/dsh-agent/@deepseek-ai/dsh-system-prompt": ["@deepseek-ai/dsh-system-prompt@0.1.0-rc.6", "", { "dependencies": { "@deepseek-ai/schemastery": "^3.18.1" }, "peerDependencies": { "@deepseek-ai/cordis": "^4.0.1", "@deepseek-ai/dsh-invariants": "^0.1.0-rc.6", "@deepseek-ai/dsh-llm": "^0.1.0-rc.6", "@deepseek-ai/dsh-scope": "^0.1.0-rc.6" } }, "sha512-E7g+XChh4q4/wX++v56z1pV4SA1Rtz42xkznLPPi9FlXrrzJxwHMOUzBZ9Rz3Y1kLhQ++HJG3ZatmNx3rjFilg=="],
+
     "@deepseek-ai/dsh-user-approval/@deepseek-ai/dsh-agent/@deepseek-ai/dsh-typert-protocol": ["@deepseek-ai/dsh-typert-protocol@0.1.0-rc.6", "", { "peerDependencies": { "@deepseek-ai/cordis": "^4.0.1", "@deepseek-ai/dsh-invariants": "^0.1.0-rc.6" } }, "sha512-weWzN8r01YCkoDCAM7BsKw2YhRrD4zL8N2SAZu9hovYtXSq8xHXsP4Zh8RLYIlYcuotjyff/6hic+0TJPd14YA=="],
+
+    "@deepseek-ai/dsh-user-approval/@deepseek-ai/dsh-llm/@deepseek-ai/dsh-attachment": ["@deepseek-ai/dsh-attachment@0.1.0-rc.6", "", { "peerDependencies": { "@deepseek-ai/cordis": "^4.0.1", "@deepseek-ai/dsh-brand": "^0.1.0-rc.6", "@deepseek-ai/dsh-invariants": "^0.1.0-rc.6" } }, "sha512-3P6N17NQ8jqSQGzeCs+svCIqArU8oq0YmgEAo+axN9aVuUDferWU4DLRSX59UGpmyldX4LQn81toA+c+DqMcHg=="],
 
     "@deepseek-ai/dsh-user-approval/@deepseek-ai/dsh-llm/@deepseek-ai/dsh-timeout": ["@deepseek-ai/dsh-timeout@0.1.0-rc.6", "", { "peerDependencies": { "@deepseek-ai/cordis": "^4.0.1", "@deepseek-ai/dsh-invariants": "^0.1.0-rc.6" } }, "sha512-CUean0fAnfsJVszFEip7PsU/S26W+JfDFfsza2dCtlw8n6xlkbHA9Gjxdk2aTwqDGCgXEPkRW7mYkdJ0n6FR7w=="],
 
