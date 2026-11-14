@@ -1,0 +1,16 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugins": ["{env:PWD}/packages/opencode2"],
+  "mcp": {
+    "servers": {
+      "mock-ci": {
+        "type": "local",
+        "command": ["bun", "run", "{env:PWD}/packages/core/tests/mock-mcp-server.ts"],
+      },
+      "codegraph": {
+        "type": "local",
+        "command": ["codegraph", "serve", "--mcp"],
+      },
+    },
+  },
+}

@@ -77,6 +77,7 @@ Both accept positive integers only. Zero, negative, or non-numeric values are tr
 # 1. Bump every package to the SAME version (lockstep):
 #      packages/core/package.json
 #      packages/opencode/package.json          (+ its `@gcszhn/mcp-sentinel-core` dep, pinned to the same version)
+#      packages/opencode2/package.json         (+ its `@gcszhn/mcp-sentinel-core` dep, pinned to the same version)
 #      packages/deepseek-harness/package.json  (+ its `@gcszhn/mcp-sentinel-core` dep, pinned to the same version)
 #      packages/cli/package.json               (+ its `@gcszhn/mcp-sentinel-core` dep, pinned to the same version)
 # 2. Commit, tag, push
@@ -85,7 +86,7 @@ git tag vX.Y.Z && git push origin main vX.Y.Z
 
 Tag push triggers `.github/workflows/release.yml` (typecheck → build → test →
 verify versions → publish `@gcszhn/mcp-sentinel-core`, then publish every plugin
-(`opencode`, `deepseek-harness`, `cli`) in parallel → GitHub release).
+(`opencode`, `opencode2`, `deepseek-harness`, `cli`) in parallel → GitHub release).
 
 **No hardcoded version strings.** The MCP client info (`name`/`version`) is imported from `package.json` with `{ type: "json" }` at compile time. Updating `package.json` version is the only required change for a release.
 
@@ -99,6 +100,7 @@ plugin pinning the core to a different version).
 
 **Monorepo layout.** `packages/core` publishes `@gcszhn/mcp-sentinel-core`;
 `packages/opencode` publishes `@gcszhn/mcp-sentinel-opencode-plugin`;
+`packages/opencode2` publishes `@gcszhn/mcp-sentinel-opencode2-plugin`;
 `packages/deepseek-harness` publishes `@gcszhn/mcp-sentinel-deepseek-harness-plugin`;
 `packages/cli` publishes `@gcszhn/mcp-sentinel-cli`.
 
