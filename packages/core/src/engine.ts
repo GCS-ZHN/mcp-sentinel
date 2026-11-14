@@ -120,7 +120,9 @@ export async function startSentinel(
     if (!t || t.status !== "polling") return;
 
     try {
-      const result = await invoke(request.server, request.tool, request.args);
+      const result = await invoke(request.server, request.tool, request.args, {
+        sessionID: request.sessionID,
+      });
 
       t.pollCount++;
       t.lastResult = result;

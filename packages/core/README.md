@@ -23,8 +23,11 @@ npm install @gcszhn/mcp-sentinel-core
 ## Usage (harness authors)
 
 The only seam between the core and a host is `ToolInvoker` — a
-`(server, tool, args) => result` function the engine calls once per poll. Build
-it one of two ways:
+`(server, tool, args, context?) => result` function the engine calls once per
+poll. `context.sessionID` identifies the originating agent when one started the
+poll, so a host that resolves tools through an agent-scoped registry can select
+the right executor and tool scope; connection-pool invokers ignore it. Build it
+one of two ways:
 
 ### Mode 1 — connection pool (the core owns MCP connections)
 
@@ -58,17 +61,18 @@ const result = await handlePoll(
 
 ### Mode 2 — external invoker (the host already owns MCP)
 
-Pass your own `(server, tool, args) => result` function; the core never opens a
-connection and never parses MCP config. This is how a host that already bridges
-MCP (e.g. registering `mcp__<server>__<tool>` on its own tool registry) reuses
-that bridge instead of connecting twice:
+Pass your own `(server, tool, args, context?) => result` function; the core never
+opens a connection and never parses MCP config. This is how a host that already
+bridges MCP (e.g. registering `mcp__<server>__<tool>` on its own tool registry)
+reuses that bridge instead of connecting twice:
 
 ```ts
 import { handlePoll } from "@gcszhn/mcp-sentinel-core";
 import type { ToolInvoker } from "@gcszhn/mcp-sentinel-core";
 
-const invoke: ToolInvoker = async (server, tool, args) => {
-  return myHost.callMcpTool(server, tool, args); // host-owned MCP call
+const invoke: ToolInvoker = async (server, tool, args, context) => {
+  // context?.sessionID identifies the agent that started the poll, when any.
+  return myHost.callMcpTool(server, tool, args, context?.sessionID); // host-owned MCP call
 };
 
 const result = await handlePoll(

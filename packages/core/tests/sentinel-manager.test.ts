@@ -83,6 +83,25 @@ describe("sentinel-manager", () => {
     ).resolves.toBeDefined();
   });
 
+  it("passes the originating session to the invoker", async () => {
+    let received: string | undefined;
+    const id = await startSentinel(
+      {
+        server: "s",
+        tool: "t",
+        args: {},
+        until: { path: "x", is: "eq", value: 1 },
+        sessionID: "session-42",
+      },
+      async (_server, _tool, _args, context) => {
+        received = context?.sessionID;
+        return { x: 1 };
+      }
+    );
+    await waitForStatus(id, "completed");
+    expect(received).toBe("session-42");
+  });
+
   it("generates unique IDs", () => {
     const config = {
       servers: { s1: { type: "remote", url: "http://localhost:1" } },

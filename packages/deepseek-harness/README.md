@@ -9,6 +9,11 @@ This package is the DeepSeek Harness adapter for `@gcszhn/mcp-sentinel-core`.
 
 ## Install
 
+Requires **DeepSeek Harness 0.2.2 or newer in the 0.2.x line**
+(`engines.dsh: >=0.2.2-rc.1 <0.3.0`). 0.2.2 introduced the batched
+`ctx.tools.execute` call shape this adapter uses (earlier 0.2.x releases expose
+the single-call shape); `1.4.0` is the last release for older DSH runtimes.
+
 Install into a profile with the `dsh` CLI:
 
 ```bash
@@ -44,10 +49,18 @@ for the harness — one `dsh-mcp-client` instance per server:
 ```
 
 When calling `mcp_sentinel_poll`, `server` is the mcp-client `serverName` and
-`tool` is the server's raw tool name; the sentinel invokes
-`mcp__<server>__<tool>` (e.g. `mcp__ci__get_status`) through the harness tool
-registry. Anything you already bridged with `dsh-mcp-client` is immediately
-pollable — no extra step.
+`tool` is the server's raw tool name; the sentinel invokes the registry name
+`mcp__<server>__<tool>` (e.g. `mcp__ci__get_status`). If the raw identity needs
+character replacement or exceeds the 64-character function-name budget,
+`dsh-mcp-client` appends a 12-hex SHA-256 suffix; the sentinel mirrors that
+normalization, so dotted or long MCP tool names still resolve instead of failing
+as `UNKNOWN_TOOL`. Anything you already bridged with `dsh-mcp-client` is
+immediately pollable — no extra step.
+
+On DSH 0.2.2+ the plugin submits one raw `tool-call` block to
+`ctx.tools.execute({ calls, signal, agent })` and reads the settled batch
+result. Passing the originating agent keeps the call inside that agent's
+executor and tool scope; agentless programmatic polls omit it.
 
 ## Tools
 
