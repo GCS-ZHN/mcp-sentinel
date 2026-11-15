@@ -1,6 +1,6 @@
 {
   "name": "@gcszhn/mcp-sentinel-deepseek-harness-plugin",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "DeepSeek Harness plugin that acts as a sentinel between the AI agent and MCP servers — polling long-running tasks on the agent's behalf so that token-costly status loops never enter the LLM inference path",
   "type": "module",
   "main": "dist/index.js",
@@ -23,7 +23,7 @@
     "dsh": ">=0.2.2-rc.1 <0.3.0"
   },
   "dependencies": {
-    "@gcszhn/mcp-sentinel-core": "1.5.0"
+    "@gcszhn/mcp-sentinel-core": "1.6.0"
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-agent": "^0.2.2-rc.1",

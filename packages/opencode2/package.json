@@ -1,6 +1,6 @@
 {
   "name": "@gcszhn/mcp-sentinel-opencode2-plugin",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "OpenCode 2 (V2) plugin that acts as a sentinel between the AI agent and MCP servers — polling long-running tasks on the agent's behalf so that token-costly status loops never enter the LLM inference path",
   "type": "module",
   "main": "dist/index.js",
@@ -19,7 +19,7 @@
     "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\""
   },
   "dependencies": {
-    "@gcszhn/mcp-sentinel-core": "1.5.0",
+    "@gcszhn/mcp-sentinel-core": "1.6.0",
     "@opencode/plugin": "2.3.0"
   },
   "devDependencies": {
