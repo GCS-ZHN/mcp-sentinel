@@ -36,6 +36,45 @@ versioning, CI, and the project-wide tool/testing standards.
   aligned with that range. Do not widen `engines.dsh` without testing the API
   floor.
 
+## Auto preset / auto-review
+
+DSH's `@deepseek-ai/dsh-experimental-auto-review` bundle prepends a
+`tools/pre-execute` listener. It intervenes only when the call carries an agent
+**and** the session's effective permission preset is `auto` (the exported
+`AUTO_PRESET` from `@deepseek-ai/dsh-permission-presets`). It then reviews the
+call by locating its open model step in the session log; a background sentinel
+poll has no step, so it throws and the call becomes:
+
+```text
+AUTO_REVIEW_FAILED: ... auto-review: the pending call has no open step in the session log
+```
+
+The adapter must not fabricate a step or disable auto-review. It selects the
+agent per call in `makeDshInvoker`:
+
+- `SENTINEL_DSH_PASS_AGENT=auto` (default): pass the agent unless
+  `permissionPresets.current(agent.session) === "auto"`.
+- `always` / `1` / `true` / `on`: always pass the agent. Full scope, but polls
+  fail on the Auto preset.
+- `never` / `0` / `false` / `off`: never pass the agent.
+
+Malformed values fail plugin load. The host service is structural
+(`PermissionPresetLookup`); do not import `@deepseek-ai/dsh-permission-presets`
+into the adapter. An absent service is treated as non-Auto.
+
+When the agent is omitted, `assertToolVisibleToAgent` calls
+`ctx.tools.get(toolName, agent)` first. A tool present globally but absent from
+the agent view is a restriction, not an unknown name, and must throw instead of
+silently bypassing the mask. A tool absent from both views proceeds so the
+executor can return its raw `UNKNOWN_TOOL` error. The agentless path does not
+run auto-review or other `tools/pre-execute` policies; that is the documented
+cost of keeping background polls functional on Auto.
+
+Unit tests: `tests/agent-selection.test.ts` covers env parsing, the per-preset
+decision, the visibility guard, and the exact `agent` field in the batch.
+Live Auto-preset E2E cannot be exercised from a danger-full-access session;
+switch a Desktop session to Auto and run poll + attach to verify the host path.
+
 ## Key facts
 
 - Plugins are **Cordis plugins**: a module exporting `name`, `inject`, and
@@ -53,10 +92,9 @@ execute }))` from `@deepseek-ai/dsh-tools`.
   registered name.
 - Tool invocation (0.2.2+): `ctx.tools.execute({ calls, signal, agent? })`
   returns a `ToolBatchResult`; the sentinel submits exactly one `tool-call`
-  block and reads `results[0].result`. Pass the originating agent (resolved from
-  the core's optional `context.sessionID`) so agent-scoped executors/tool
-  scopes are honored and `ToolExecutorUnavailableError` is not raised for
-  preset-scoped executors.
+  block and reads `results[0].result`. `makeDshInvoker` resolves the originating
+  agent from the core's optional `context.sessionID` and then decides whether to
+  attach it (see [Auto preset / auto-review](#auto-preset--auto-review)).
 - Notification: push to the originating agent via
   `agent.followup(createUserMessage(...))`; `ctx.agents.get(SessionId(...))`
   resolves the agent by its session id. (`followup` — not

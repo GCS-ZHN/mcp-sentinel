@@ -59,8 +59,32 @@ immediately pollable — no extra step.
 
 On DSH 0.2.2+ the plugin submits one raw `tool-call` block to
 `ctx.tools.execute({ calls, signal, agent })` and reads the settled batch
-result. Passing the originating agent keeps the call inside that agent's
-executor and tool scope; agentless programmatic polls omit it.
+result. The adapter chooses the agent per call:
+
+- With a normal permission preset, the originating agent is passed through, so
+  the call stays inside that agent's executor, tool restrictions, and
+  `tools/pre-execute` policies.
+- With the **Auto** permission preset, the agent is omitted by default. DSH's
+  auto-review gate reviews agent-bound calls by looking up an open model step;
+  a sentinel poll runs from a background timer and has no step, so the call
+  would always fail with `AUTO_REVIEW_FAILED`. Agentless polls still check the
+  agent's tool visibility mask (allow/deny) before executing.
+
+### Auto permission preset
+
+`SENTINEL_DSH_PASS_AGENT` selects the behavior:
+
+| Value                            | Behavior                                                                                                             |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `auto` (default) / unset / empty | Pass the agent unless the session uses the Auto permission preset.                                                   |
+| `always` / `1` / `true` / `on`   | Always pass the agent. Keeps full scope, but `mcp_sentinel_poll` fails with `AUTO_REVIEW_FAILED` on the Auto preset. |
+| `never` / `0` / `false` / `off`  | Never pass the agent. Always uses the deployment executor and the visibility guard.                                  |
+
+Invalid values fail plugin load with a clear error. The agentless path does not
+run auto-review or other `tools/pre-execute` policies; it still refuses a tool
+that the agent is restricted from calling. This is a workaround for a DSH host
+limitation, not a replacement for the Auto preset's review: the upstream fix is
+for auto-review to skip calls that have no open model step.
 
 ## Tools
 
