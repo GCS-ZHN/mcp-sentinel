@@ -19,7 +19,7 @@ import { createHash } from "node:crypto";
 
 import type { Context } from "@deepseek-ai/cordis";
 import { defineTool } from "@deepseek-ai/dsh-tools";
-import type { ToolBatchResult, ToolExecutionResult } from "@deepseek-ai/dsh-tools";
+import type { ToolBatchInput, ToolBatchResult, ToolExecutionResult } from "@deepseek-ai/dsh-tools";
 import type { Agent } from "@deepseek-ai/dsh-agent";
 import { ToolCallId, boundContextSummary, createUserMessage } from "@deepseek-ai/dsh-llm";
 import type { ContextFormed } from "@deepseek-ai/dsh-llm";
@@ -148,6 +148,157 @@ export function mcpToolName(server: string, tool: string): string {
   return `${normalized.slice(0, MCP_TOOL_NAME_MAX - 12 - 1)}_${hash}`;
 }
 
+/** Environment variable selecting when background MCP calls carry the agent. */
+export const PASS_AGENT_ENV = "SENTINEL_DSH_PASS_AGENT";
+
+/**
+ * How the DSH adapter decides whether a background MCP call carries the
+ * originating agent.
+ *
+ * `auto` passes the agent unless the session uses the Auto permission preset,
+ * whose auto-review gate requires an open model step that a background poll
+ * never has. `always` and `never` force the strict or agentless behavior.
+ */
+export type PassAgentMode = "auto" | "always" | "never";
+
+/**
+ * The host preset that installs the auto-review gate. Mirrors `AUTO_PRESET`
+ * from `@deepseek-ai/dsh-permission-presets`; kept as a literal so the adapter
+ * does not depend on that package at runtime.
+ */
+const AUTO_PRESET = "auto";
+
+/** Structural slice of the host `permissionPresets` service. */
+export interface PermissionPresetLookup {
+  current(session: Agent["session"]): string;
+}
+
+/** Structural slice of the tool registry used for the agent-visibility guard. */
+export interface ToolVisibilityLookup {
+  get(name: string, scope?: Agent): unknown;
+}
+
+/**
+ * Parse `SENTINEL_DSH_PASS_AGENT`.
+ *
+ * Unset or empty defaults to `auto`; malformed values fail plugin load instead
+ * of silently changing the scope/security policy.
+ */
+export function passAgentModeFromEnv(raw: string | undefined): PassAgentMode {
+  if (raw === undefined || raw.trim() === "") return "auto";
+  switch (raw.trim().toLowerCase()) {
+    case "auto":
+      return "auto";
+    case "always":
+    case "1":
+    case "true":
+    case "on":
+      return "always";
+    case "never":
+    case "0":
+    case "false":
+    case "off":
+      return "never";
+    default:
+      throw new Error(
+        `Invalid ${PASS_AGENT_ENV}=${JSON.stringify(raw)}; expected "auto", "always"/1/true/on, or "never"/0/false/off.`
+      );
+  }
+}
+
+/**
+ * Choose the agent attached to one background MCP batch.
+ *
+ * `undefined` means the batch runs through the deployment executor instead of
+ * the agent-scoped one. `preset` is read from the host's `permissionPresets`
+ * service; an absent preset is treated as non-Auto.
+ */
+export function resolveExecutionAgent(
+  agent: Agent | undefined,
+  mode: PassAgentMode,
+  preset: string | undefined
+): Agent | undefined {
+  if (agent === undefined || mode === "never") return undefined;
+  if (mode === "always") return agent;
+  return preset === AUTO_PRESET ? undefined : agent;
+}
+
+/**
+ * Keep the agent's tool allow/deny mask effective when a batch runs agentless.
+ *
+ * `ctx.tools.get(name, agent)` reflects `ctx.tools.restrict()` masks. A tool
+ * absent from the agent view but present globally is a restriction, not an
+ * unknown name; throw instead of silently bypassing it. When both views are
+ * empty the tool genuinely does not exist, so execution proceeds and the
+ * registry produces its raw `UNKNOWN_TOOL` error.
+ */
+export function assertToolVisibleToAgent(
+  tools: ToolVisibilityLookup,
+  toolName: string,
+  agent: Agent
+): void {
+  if (tools.get(toolName, agent) !== undefined) return;
+  if (tools.get(toolName) === undefined) return;
+  throw new Error(`tool "${toolName}" is not available to this agent`);
+}
+
+/** Dependencies of the DSH external invoker; exported for unit tests. */
+export interface DshInvokerDeps {
+  readonly execute: (input: ToolBatchInput) => Promise<ToolBatchResult>;
+  readonly tools: ToolVisibilityLookup;
+  readonly agents: { get(sessionID: string): Agent | undefined };
+  readonly passAgent: PassAgentMode;
+  readonly presetOf: (agent: Agent) => string | undefined;
+  readonly onAgentless?: (agent: Agent) => void;
+}
+
+/**
+ * Build the external invoker that submits one raw MCP call to the Harness tool
+ * registry.
+ *
+ * The invoker deliberately chooses the agent per call:
+ *
+ * - Non-Auto sessions keep the agent, preserving scoped executors, tool
+ *   restrictions, and `tools/pre-execute` policies.
+ * - Auto sessions run agentless. DSH's auto-review gate rejects a review when
+ *   the pending call has no open model step, which is always true for a
+ *   background poll; the agentless path avoids the gate while still checking
+ *   the agent-visible tool mask.
+ */
+export function makeDshInvoker(deps: DshInvokerDeps): ToolInvoker {
+  return async (server, tool, args, context) => {
+    const agent = context?.sessionID === undefined ? undefined : deps.agents.get(context.sessionID);
+    const preset = agent === undefined ? undefined : deps.presetOf(agent);
+    const executionAgent = resolveExecutionAgent(agent, deps.passAgent, preset);
+    const autoReviewBypass =
+      agent !== undefined && deps.passAgent === "auto" && preset === AUTO_PRESET;
+    const toolName = mcpToolName(server, tool);
+
+    if (agent !== undefined && executionAgent === undefined) {
+      assertToolVisibleToAgent(deps.tools, toolName, agent);
+      if (autoReviewBypass) deps.onAgentless?.(agent);
+    }
+
+    const callArguments = JSON.stringify(args);
+    if (callArguments === undefined) {
+      throw new Error(`sentinel arguments for ${server}/${tool} are not JSON-serializable`);
+    }
+    const batch = await deps.execute({
+      calls: [
+        {
+          type: "tool-call",
+          id: ToolCallId(`sentinel-${Date.now()}-${Math.random().toString(36).slice(2)}`),
+          name: toolName,
+          arguments: callArguments,
+        },
+      ],
+      signal: new AbortController().signal,
+      ...(executionAgent === undefined ? {} : { agent: executionAgent }),
+    });
+    return extractSingleResult(batch);
+  };
+}
+
 /**
  * Build the agent-facing notification text for a resolved sentinel.
  *
@@ -257,34 +408,62 @@ export function apply(ctx: Context): void {
   };
   setNotifier(notifier);
 
+  // DSH's Auto permission preset installs an auto-review gate on
+  // `tools/pre-execute`. That gate needs the pending call's open model step;
+  // a sentinel poll runs from a background timer and has no step, so passing
+  // the agent there always fails with AUTO_REVIEW_FAILED. The default `auto`
+  // mode keeps the agent for every other preset and drops it only for Auto,
+  // where the visibility guard below still honors agent tool allow/deny masks.
+  const passAgent = passAgentModeFromEnv(process.env[PASS_AGENT_ENV]);
+  if (passAgent === "always") {
+    logger.warn(
+      `${PASS_AGENT_ENV}=always: background MCP calls carry the originating agent. ` +
+        `The DSH Auto permission preset will reject them with AUTO_REVIEW_FAILED because no model step is open.`
+    );
+  } else if (passAgent === "never") {
+    logger.info(`${PASS_AGENT_ENV}=never: background MCP calls always run without agent scope.`);
+  }
+
+  const presetOf = (agent: Agent): string | undefined => {
+    const service = (ctx as unknown as { get(name: string): unknown }).get("permissionPresets") as
+      PermissionPresetLookup | undefined;
+    if (service === undefined) return undefined;
+    try {
+      return service.current(agent.session);
+    } catch (err) {
+      logger.warn(
+        `mcp-sentinel: cannot read the permission preset for agent "${agent.id}"; ` +
+          `treating the session as non-Auto — ${String(err)}`
+      );
+      return undefined;
+    }
+  };
+
+  const warnedAgentless = new WeakSet<Agent>();
+  const onAgentless = (agent: Agent): void => {
+    if (warnedAgentless.has(agent)) return;
+    warnedAgentless.add(agent);
+    logger.warn(
+      `mcp-sentinel: agent "${agent.id}" uses the Auto permission preset; background MCP calls run ` +
+        `without agent scope because DSH auto-review requires an open model step. Agent tool masks are ` +
+        `still enforced, but agent-scoped executors and pre-execute policies are skipped. Set ` +
+        `${PASS_AGENT_ENV}=always to pass the agent (polls then fail in Auto mode).`
+    );
+  };
+
   // External-invoker mode: call the MCP tools already registered by
   // `@deepseek-ai/dsh-mcp-client` through the harness tool registry instead of
   // owning MCP connections in the core. The server name maps to the
   // `serverName` of an mcp-client instance, and the tool name to the public
-  // registry name derived from its raw MCP name. Passing the originating agent
-  // keeps the call in that agent's executor/tool scope; it is absent only for
-  // agentless programmatic polls.
-  const invoke: ToolInvoker = async (server, tool, args, context) => {
-    const agent =
-      context?.sessionID === undefined ? undefined : ctx.agents.get(SessionId(context.sessionID));
-    const callArguments = JSON.stringify(args);
-    if (callArguments === undefined) {
-      throw new Error(`sentinel arguments for ${server}/${tool} are not JSON-serializable`);
-    }
-    const batch = await ctx.tools.execute({
-      calls: [
-        {
-          type: "tool-call",
-          id: ToolCallId(`sentinel-${Date.now()}-${Math.random().toString(36).slice(2)}`),
-          name: mcpToolName(server, tool),
-          arguments: callArguments,
-        },
-      ],
-      signal: new AbortController().signal,
-      ...(agent === undefined ? {} : { agent }),
-    });
-    return extractSingleResult(batch);
-  };
+  // registry name derived from its raw MCP name.
+  const invoke = makeDshInvoker({
+    execute: (input) => ctx.tools.execute(input),
+    tools: { get: (name, scope) => ctx.tools.get(name, scope) },
+    agents: { get: (sessionID) => ctx.agents.get(SessionId(sessionID)) },
+    passAgent,
+    presetOf,
+    onAgentless,
+  });
 
   // doc: https://deepseek-harness.github.io/deepseek-harness/en/reference/subsystems/tools#the-unified-json-value-schema-dsl
   ctx.tools.register(
