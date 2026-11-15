@@ -45,6 +45,7 @@ import {
   setNotifier,
   cleanup,
   disconnectAll,
+  reconcileConnections,
 } from "@gcszhn/mcp-sentinel-core";
 import type { McpConfig, SentinelTask, SentinelEvent } from "@gcszhn/mcp-sentinel-core";
 
@@ -57,6 +58,11 @@ const result = await handlePoll(
   { server, tool, args, interval, timeout, until, sessionID },
   invoke
 );
+
+// 3. When the host reloads its MCP config, close clients it no longer uses.
+//    Removed / disabled servers and changed command/cwd/env/url/headers all
+//    produce a new serverKey, so their old connection is closed here.
+await reconcileConnections(parseMyHostMcpConfig(rawConfig));
 ```
 
 ### Mode 2 — external invoker (the host already owns MCP)

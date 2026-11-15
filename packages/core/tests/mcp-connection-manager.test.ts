@@ -7,6 +7,7 @@ import {
   isConnectionError,
   getConnectionCount,
   parseMcpContent,
+  reconcileConnections,
 } from "../src/connection-pool.js";
 import type { McpRemoteConfig } from "../src/types.js";
 
@@ -192,6 +193,100 @@ describe("connection manager edge cases", () => {
 
     await disconnectAll();
     expect(getConnectionCount()).toBe(0);
+  });
+});
+
+// --- Reconciliation: host config changes must not leak connections ---
+describe("reconcileConnections", () => {
+  it("closes connections for servers that were removed", async () => {
+    await disconnectAll();
+    await getOrCreateClient("rec-keep", config);
+    await getOrCreateClient("rec-gone", config);
+    expect(getConnectionCount()).toBe(2);
+
+    const result = await reconcileConnections({ servers: { "rec-keep": config } });
+
+    expect(result.closed).toEqual(["rec-gone"]);
+    expect(result.kept).toBe(1);
+    expect(getConnectionCount()).toBe(1);
+
+    await disconnectAll();
+  });
+
+  it("closes the old connection when a server's config changed", async () => {
+    await disconnectAll();
+    await getOrCreateClient("rec-changed", config);
+    expect(getConnectionCount()).toBe(1);
+
+    const moved: McpRemoteConfig = { type: "remote", url: `${HTTP_URL}?v=2` };
+    const result = await reconcileConnections({ servers: { "rec-changed": moved } });
+
+    expect(result.closed).toEqual(["rec-changed"]);
+    expect(result.kept).toBe(0);
+    expect(getConnectionCount()).toBe(0);
+
+    await disconnectAll();
+  });
+
+  it("keeps unchanged connections", async () => {
+    await disconnectAll();
+    const client = await getOrCreateClient("rec-same", config);
+
+    const result = await reconcileConnections({ servers: { "rec-same": config } });
+
+    expect(result.closed).toEqual([]);
+    expect(result.kept).toBe(1);
+    expect(await getOrCreateClient("rec-same", config)).toBe(client);
+
+    await disconnectAll();
+  });
+
+  it("treats a disabled server as removed", async () => {
+    await disconnectAll();
+    await getOrCreateClient("rec-disabled", config);
+
+    const result = await reconcileConnections({
+      servers: { "rec-disabled": { ...config, enabled: false } },
+    });
+
+    expect(result.closed).toEqual(["rec-disabled"]);
+    expect(getConnectionCount()).toBe(0);
+
+    await disconnectAll();
+  });
+
+  it("closes everything for an empty config", async () => {
+    await disconnectAll();
+    await getOrCreateClient("rec-a", config);
+    await getOrCreateClient("rec-b", config);
+
+    const result = await reconcileConnections({ servers: {} });
+
+    expect(result.closed.sort()).toEqual(["rec-a", "rec-b"]);
+    expect(result.kept).toBe(0);
+    expect(getConnectionCount()).toBe(0);
+  });
+
+  it("keeps a server that another scope configures differently", async () => {
+    await disconnectAll();
+    const mockServer = join(import.meta.dir, "mock-mcp-server.ts");
+    const base = { type: "local" as const, command: ["bun", mockServer] };
+    const withCwd = { ...base, cwd: import.meta.dir };
+
+    await getOrCreateClient("multi", base);
+    await getOrCreateClient("multi", withCwd);
+    expect(getConnectionCount()).toBe(2);
+
+    const result = await reconcileConnections([
+      { servers: { multi: base } },
+      { servers: { multi: withCwd } },
+    ]);
+
+    expect(result.closed).toEqual([]);
+    expect(result.kept).toBe(2);
+    expect(getConnectionCount()).toBe(2);
+
+    await disconnectAll();
   });
 });
 

@@ -29,6 +29,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type {
+  McpConfig,
   McpServerConfig,
   McpLocalConfig,
   McpRemoteConfig,
@@ -450,6 +451,57 @@ export async function disconnectAll(): Promise<void> {
   }
   connections.clear();
   pendingConnections.clear();
+}
+
+/**
+ * Close cached connections that no longer match the host's MCP config.
+ *
+ * Hosts reload their MCP configuration while the process keeps running (the
+ * core's connection cache is process-global and survives adapter reloads), so
+ * a server that was removed — or whose `command`/`cwd`/`env`/`url`/`headers`
+ * changed — would otherwise keep an orphaned child process and connection
+ * alive forever. This compares every cached entry against the current config
+ * by {@link serverKey} and closes the ones whose identity no longer exists.
+ *
+ * Call it whenever the host replays its MCP registry (and therefore after every
+ * config reload). Unchanged servers keep their connection; the next poll
+ * reconnects lazily for anything that was closed.
+ *
+ * @param config - The host's current MCP config, or several configs when the
+ *   host has multiple scopes (locations) sharing one process and therefore one
+ *   connection cache. Every config's servers stay connected.
+ * @returns The server names whose cached connection was closed, and how many
+ *          entries were kept.
+ */
+export async function reconcileConnections(
+  config: McpConfig | readonly McpConfig[]
+): Promise<{ closed: string[]; kept: number }> {
+  const validKeys = new Set<string>();
+  const configs = (Array.isArray(config) ? config : [config]) as readonly McpConfig[];
+  for (const current of configs) {
+    for (const [name, serverConfig] of Object.entries(current.servers)) {
+      if (serverConfig.enabled === false) continue;
+      validKeys.add(serverKey(name, serverConfig));
+    }
+  }
+
+  const closed: string[] = [];
+  for (const [key, entry] of Array.from(connections)) {
+    if (validKeys.has(key)) continue;
+
+    connections.delete(key);
+    try {
+      await entry.client.close();
+    } catch {
+      // dead transport — close may also throw, ignore
+    }
+    closed.push(entry.serverName);
+    logDebug("Closed connection for removed or changed MCP server", {
+      server: entry.serverName,
+    });
+  }
+
+  return { closed, kept: connections.size };
 }
 
 /**

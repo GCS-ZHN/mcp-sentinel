@@ -46,6 +46,36 @@ await ctx.mcp.transform((editor) => {
 The captured `[name, config]` entries are normalized by `src/config.ts` into the
 core's `McpConfig`.
 
+### Reload handling (server add/remove/change)
+
+`ctx.mcp.transform` callbacks are **replayed** whenever OpenCode rebuilds the MCP
+registry ("any registration, removal, or `reload()` marks the registry changed;
+the next read rebuilds it by replaying every active transform"). The plugin uses
+that as its reload hook:
+
+```ts
+await ctx.mcp.transform((editor) => {
+  mcpEntries = editor.list();
+  binding.mcpConfig = normalizeOpencode2McpConfig(mcpEntries);
+  void reconcileConnections(getCombinedMcpConfigs()).catch(...);
+});
+```
+
+`reconcileConnections` (core) closes cached clients whose `serverKey` no longer
+exists in the config — removed servers, `disabled: true`, or any change to
+`command`/`cwd`/`env`/`url`/`headers`. Unchanged servers keep their connection;
+a later poll reconnects lazily. The callback is synchronous, so the close is
+fire-and-forget.
+
+Because the connection cache is process-wide but each V2 instance only sees its
+own location's servers, reconciliation receives **every** live instance's config
+as an array (`getCombinedMcpConfigs`). Merging by name would be wrong: two
+locations can configure the same server name differently, and both connections
+must survive. An unloading instance reconciles after it unregisters instead of
+disconnecting everything. `ctx.mcp.reload()`
+replays the transforms too, but it only exists to reapply plugin-side edits; the
+plugin never needs to call it for host config changes.
+
 ### No host MCP invocation API (verified on 2.3.0)
 
 Connection-pool mode is not a shortcut — V2 offers no way to execute a host MCP
