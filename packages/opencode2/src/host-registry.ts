@@ -19,6 +19,7 @@
 import { setLogSink, setNotifier } from "@gcszhn/mcp-sentinel-core";
 import type {
   LogSink,
+  McpConfig,
   SentinelEvent,
   SentinelNotifier,
   SentinelTask,
@@ -30,6 +31,12 @@ export interface HostBinding {
   readonly notifier: SentinelNotifier;
   /** Writes a structured log entry through this instance's host log channel. */
   readonly logSink: LogSink;
+  /**
+   * The MCP servers this instance's location sees, refreshed on every MCP
+   * transform replay. Used to reconcile the process-wide connection cache:
+   * a connection may only be closed once **no** live instance needs it.
+   */
+  mcpConfig?: McpConfig;
 }
 
 const bindings: HostBinding[] = [];
@@ -38,6 +45,19 @@ const sessionOwners = new Map<string, HostBinding>();
 /** Return the most recently registered binding, if any. */
 export function getActiveHostBinding(): HostBinding | undefined {
   return bindings[bindings.length - 1];
+}
+
+/**
+ * The MCP config of every live plugin instance.
+ *
+ * The core's connection cache is process-wide, while each V2 instance only sees
+ * the servers configured for its own location. Reconciliation must therefore
+ * run against every location's config; merging by name would drop a server two
+ * locations configure differently (for example a project overriding a global
+ * server), and closing it would break the other location's polls.
+ */
+export function getCombinedMcpConfigs(): McpConfig[] {
+  return bindings.map((binding) => binding.mcpConfig ?? { servers: {} });
 }
 
 /** Number of currently registered plugin instances. */

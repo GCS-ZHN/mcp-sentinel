@@ -46,12 +46,14 @@ import {
   logWarn,
   makeConnectionInvoker,
   makeServerResolver,
+  reconcileConnections,
 } from "@gcszhn/mcp-sentinel-core";
 import type { LogSink, SentinelCondition, SentinelNotifier } from "@gcszhn/mcp-sentinel-core";
 import { describeServerProblem, normalizeOpencode2McpConfig } from "./config.js";
 import type { Opencode2McpEntry, Opencode2McpStatus } from "./config.js";
 import {
   claimSession,
+  getCombinedMcpConfigs,
   getHostBindingCount,
   registerHostBinding,
   unregisterHostBinding,
@@ -180,15 +182,6 @@ export default Plugin.define({
   id: PLUGIN_ID,
 
   async setup(ctx) {
-    // V2 exposes MCP *configuration* only inside a transform; `ctx.mcp.list()`
-    // returns connection status, not config. Capture the current entries from
-    // this cheap, synchronous, replayable callback. OpenCode replays it when
-    // the registry is rebuilt (for example after a config reload).
-    let mcpEntries: readonly Opencode2McpEntry[] = [];
-    await ctx.mcp.transform((editor) => {
-      mcpEntries = editor.list();
-    });
-
     const delivery: Delivery = ctx.options.delivery === "steer" ? "steer" : "queue";
     const resume = ctx.options.resume !== false;
 
@@ -244,6 +237,22 @@ export default Plugin.define({
 
     const binding: HostBinding = { notifier, logSink };
     registerHostBinding(binding);
+
+    // V2 exposes MCP *configuration* only inside a transform; `ctx.mcp.list()`
+    // returns connection status, not config. The callback is replayed whenever
+    // OpenCode rebuilds the MCP registry (config reload, another plugin's
+    // transform, `ctx.mcp.reload()`), so it doubles as the reload hook: refresh
+    // this location's config snapshot and reconcile the process-wide connection
+    // cache. Reconcile is fire-and-forget because the callback is synchronous.
+    let mcpEntries: readonly Opencode2McpEntry[] = [];
+    await ctx.mcp.transform((editor) => {
+      mcpEntries = editor.list();
+      binding.mcpConfig = normalizeOpencode2McpConfig(mcpEntries);
+      void reconcileConnections(getCombinedMcpConfigs()).catch((err) => {
+        logWarn("Failed to reconcile MCP connections", { error: String(err) });
+      });
+    });
+
     logInfo("MCP Sentinel OpenCode 2 plugin initialized", { version: ctx.app.version });
 
     /** Read a server's connection status from the host's MCP domain. */
@@ -385,6 +394,14 @@ ${COMPLETION_NOTIFICATION_NOTE}`,
       if (getHostBindingCount() === 0) {
         cleanup();
         await disconnectAll();
+        return;
+      }
+      // Other locations still share the process-wide connection cache: drop
+      // only the connections this location owned.
+      try {
+        await reconcileConnections(getCombinedMcpConfigs());
+      } catch (err) {
+        logWarn("Failed to reconcile MCP connections on unload", { error: String(err) });
       }
     };
   },

@@ -33,6 +33,15 @@ Stdio children get `stderr: "pipe"` and their stderr is forwarded to the debug
 logger; never let a child inherit the host's fd 2, which may be a dead
 descriptor in daemon-hosted harnesses.
 
+`reconcileConnections(config | configs[])` closes every cached entry whose
+`serverKey` is absent from the given config(s) (removed server, `enabled: false`, or a changed
+`command`/`cwd`/`env`/`url`/`headers`) and keeps the rest. Adaptors should call
+it whenever the host replays its MCP config; a background-cached client would
+otherwise keep an orphaned child process alive forever. Multi-location hosts must
+pass every live location's config (see the OpenCode 2 adapter's
+`getCombinedMcpConfigs`) rather than merging by server name: two locations may
+configure the same name differently, and both connections must survive.
+
 ## Cancellation
 
 `poll()` re-checks `task.status === "polling"` after every `await`. A cancel

@@ -4,6 +4,7 @@ import {
   claimSession,
   dispatchNotification,
   getActiveHostBinding,
+  getCombinedMcpConfigs,
   getHostBindingCount,
   registerHostBinding,
   unregisterHostBinding,
@@ -103,5 +104,50 @@ describe("host binding registry", () => {
 
     await dispatchNotification(makeTask("ses-1"), "completed");
     expect(calls).toEqual([]);
+  });
+
+  it("merges every live instance's MCP config into the reconciliation view", () => {
+    const first = register(makeBinding("first", []));
+    first.mcpConfig = {
+      servers: {
+        shared: { type: "remote", url: "http://first/mcp" },
+        alpha: { type: "remote", url: "http://a/mcp" },
+      },
+    };
+
+    const second = register(makeBinding("second", []));
+    second.mcpConfig = {
+      servers: {
+        shared: { type: "remote", url: "http://second/mcp" },
+        beta: { type: "remote", url: "http://b/mcp" },
+      },
+    };
+
+    // Same server name with different configs in two locations: both survive,
+    // because the core keys connections by full config identity.
+    expect(getCombinedMcpConfigs()).toEqual([
+      {
+        servers: {
+          shared: { type: "remote", url: "http://first/mcp" },
+          alpha: { type: "remote", url: "http://a/mcp" },
+        },
+      },
+      {
+        servers: {
+          shared: { type: "remote", url: "http://second/mcp" },
+          beta: { type: "remote", url: "http://b/mcp" },
+        },
+      },
+    ]);
+
+    unregisterHostBinding(second);
+    expect(getCombinedMcpConfigs()).toEqual([
+      {
+        servers: {
+          shared: { type: "remote", url: "http://first/mcp" },
+          alpha: { type: "remote", url: "http://a/mcp" },
+        },
+      },
+    ]);
   });
 });

@@ -249,6 +249,9 @@ Judge config: `DEEPSEEK_API_KEY` (or `~/.dsh/.credentials.yaml`),
   `completed` / `failed` notification
 - Connection cache identity: changing `cwd`/`env` (local) or `url`/`headers`
   (remote) must yield a new client instead of reusing the stale one
+- Connection reconciliation: a server removed from the config (or disabled)
+  must have its cached client closed, unchanged servers keep theirs, and an
+  empty config closes everything
 
 ### End-to-end tests must cover
 

@@ -32,6 +32,16 @@ can observe agent tool calls, but nothing can execute a host MCP tool
 programmatically. The adapter therefore runs in connection-pool mode: it reads
 the server config from the host and lets the shared core own the MCP client.
 
+The config capture also acts as the reload hook. V2 replays every registered
+MCP transform whenever the registry is rebuilt (config change, another plugin's
+transform, `ctx.mcp.reload()`), so the same callback refreshes the server list
+and calls the core's `reconcileConnections`: servers that were removed, disabled,
+or whose `command`/`cwd`/`env`/`url`/`headers` changed have their cached client
+closed instead of leaking a child process. Servers that are still configured
+keep their connection, and every V2 location's config is passed to the
+reconciliation so one location never closes a connection another one still
+polls.
+
 Unlike V1, V2 config declares servers under `mcp.servers.{name}`:
 
 ```jsonc
